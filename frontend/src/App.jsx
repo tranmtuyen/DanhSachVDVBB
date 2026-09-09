@@ -472,7 +472,7 @@ export default function App() {
           style={{ padding: "16px 24px", gap: 16, flexWrap: "wrap" }}
         >
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, letterSpacing: -0.1, color: "#fff", lineHeight: 1.3 }}>
-            CLB bóng bàn Sao Mai - An Giang: Danh sách VĐV bóng bàn
+           HỆ THỐNG DANH SÁCH VẬN ĐỘNG VIÊN BÓNG BÀN
           </div>
           <div>
             {!currentUser ? (
@@ -519,12 +519,7 @@ export default function App() {
             {loadError}
           </div>
         )}
-        {role === "public" && (
-          <div style={{ fontSize: 13, color: C.muted, marginBottom: 16 }}>
-            Bạn đang xem ở chế độ công khai — chỉ xem, không thể nhập hay chỉnh sửa dữ liệu.
-          </div>
-        )}
-
+       
         {tab === "leaderboard" && (
           <Leaderboard players={players} matches={matches} history={history} onSelect={(p) => { setSelectedPlayer(p); setTab("player-detail"); }} />
         )}
