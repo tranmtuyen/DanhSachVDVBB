@@ -2,10 +2,12 @@ import React, { useState, useEffect, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 /* ======================================================================
-   Địa chỉ backend Django. Đổi dòng này khi triển khai public
-   (ví dụ: "https://diem.clbbongban-cuaban.vn").
+   Địa chỉ backend Django. MẶC ĐỊNH RỖNG = gọi API cùng domain (đúng cho
+   cách deploy hiện tại: Nginx phục vụ chung 1 domain cho cả frontend+backend).
+   Chỉ cần đặt biến môi trường VITE_API_ORIGIN nếu backend nằm ở domain KHÁC
+   (ví dụ chạy "npm run dev" cục bộ trỏ sang VPS, hoặc tách domain riêng sau này).
    ====================================================================== */
-const API_ORIGIN = import.meta.env.VITE_API_ORIGIN || "http://localhost:8000";
+const API_ORIGIN = import.meta.env.VITE_API_ORIGIN || "";
 const API = `${API_ORIGIN}/api`;
 
 /* ---------- Design tokens (tham khảo phong cách bongbantv.com.vn) ---------- */
