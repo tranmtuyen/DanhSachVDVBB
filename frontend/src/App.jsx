@@ -67,23 +67,31 @@ function normalizeVN(s) {
     .replace(/đ/g, "d");
 }
 
-const ROLES = [
-  { id: "admin", label: "Quản trị viên" },
-  { id: "manager", label: "Quản lý giải đấu" },
-  { id: "scorer", label: "Người nhập liệu" },
-  { id: "public", label: "Công khai (xem)" },
-];
+const ROLE_LABEL = {
+  admin: "Quản trị viên",
+  manager: "Quản lý giải đấu",
+  scorer: "Người nhập liệu",
+  user: "Người dùng",
+  public: "Công khai (xem)",
+};
+
+/* Token đăng nhập — được App() cập nhật mỗi khi trạng thái đăng nhập thay đổi */
+let authToken = null;
+function setAuthToken(t) { authToken = t; }
+function authHeaders(extra) {
+  return authToken ? { ...extra, Authorization: `Token ${authToken}` } : { ...extra };
+}
 
 /* ---------- API helpers ---------- */
 async function apiGet(path) {
-  const res = await fetch(`${API}${path}`);
+  const res = await fetch(`${API}${path}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`GET ${path} thất bại (${res.status})`);
   return res.json();
 }
 async function apiPostJSON(path, body) {
   const res = await fetch(`${API}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -95,7 +103,7 @@ async function apiPostJSON(path, body) {
 async function apiPatchJSON(path, body) {
   const res = await fetch(`${API}${path}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -105,7 +113,7 @@ async function apiPatchJSON(path, body) {
   return res.json();
 }
 async function apiForm(path, method, formData) {
-  const res = await fetch(`${API}${path}`, { method, body: formData });
+  const res = await fetch(`${API}${path}`, { method, headers: authHeaders(), body: formData });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || JSON.stringify(err) || `${method} ${path} thất bại`);
@@ -113,7 +121,7 @@ async function apiForm(path, method, formData) {
   return res.json();
 }
 async function apiDelete(path) {
-  const res = await fetch(`${API}${path}`, { method: "DELETE" });
+  const res = await fetch(`${API}${path}`, { method: "DELETE", headers: authHeaders() });
   if (!res.ok) throw new Error(`DELETE ${path} thất bại (${res.status})`);
 }
 
@@ -285,9 +293,43 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [role, setRole] = useState("admin");
+  const [token, setToken] = useState(() => localStorage.getItem("tt_token") || null);
+  const [currentUser, setCurrentUser] = useState(null); // {username, role}
+  const [authChecked, setAuthChecked] = useState(false);
   const [tab, setTab] = useState("leaderboard");
   const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [showLogin, setShowLogin] = useState(false);
+
+  const role = currentUser?.role || "public";
+
+  useEffect(() => {
+    setAuthToken(token);
+    if (!token) { setCurrentUser(null); setAuthChecked(true); return; }
+    (async () => {
+      try {
+        const me = await apiGet("/auth/me/");
+        setCurrentUser(me);
+      } catch {
+        localStorage.removeItem("tt_token");
+        setToken(null);
+        setCurrentUser(null);
+      }
+      setAuthChecked(true);
+    })();
+  }, [token]);
+
+  async function login(username, password) {
+    const res = await apiPostJSON("/auth/login/", { username, password });
+    localStorage.setItem("tt_token", res.token);
+    setToken(res.token);
+    setCurrentUser({ username: res.username, role: res.role });
+  }
+  async function logout() {
+    try { await apiPostJSON("/auth/logout/", {}); } catch {}
+    localStorage.removeItem("tt_token");
+    setToken(null);
+    setCurrentUser(null);
+  }
 
   async function refreshAll() {
     try {
@@ -316,7 +358,7 @@ export default function App() {
     await refreshAll();
   }
 
-  async function editPlayer(playerId, { name, nickname, birthYear, idNumber, photoFile }) {
+  async function editPlayer(playerId, { name, nickname, birthYear, idNumber, photoFile, newRating }) {
     const fd = new FormData();
     fd.append("name", name);
     fd.append("nickname", nickname || "");
@@ -324,6 +366,9 @@ export default function App() {
     fd.append("id_number", idNumber || "");
     if (photoFile) fd.append("photo", photoFile);
     await apiForm(`/players/${playerId}/`, "PATCH", fd);
+    if (newRating !== undefined && newRating !== null) {
+      await apiPostJSON(`/players/${playerId}/adjust_rating/`, { rating: newRating });
+    }
     await refreshAll();
   }
 
@@ -368,6 +413,16 @@ export default function App() {
     await refreshAll();
   }
 
+  async function createUser({ username, password, newRole }) {
+    return apiPostJSON("/users/", { username, password, new_role: newRole });
+  }
+  async function updateUserRole(userId, newRole) {
+    return apiPatchJSON(`/users/${userId}/`, { new_role: newRole });
+  }
+  async function resetUserPassword(userId, password) {
+    return apiPatchJSON(`/users/${userId}/`, { password });
+  }
+
   const canManagePlayers = role === "admin";
   const canManageTournaments = role === "admin" || role === "manager";
   const canEnterResults = role === "admin" || role === "manager";
@@ -379,6 +434,7 @@ export default function App() {
     { id: "tournaments", label: "Giải đấu", show: true },
     { id: "friendly", label: "Giao hữu", show: true },
     { id: "enter-match", label: "Nhập trận đấu", show: canEnterMatches },
+    { id: "users", label: "Quản lý User", show: role === "admin" },
   ].filter((t) => t.show);
 
   useEffect(() => {
@@ -409,23 +465,37 @@ export default function App() {
 
       {/* Header */}
       <div style={{ background: C.ink }}>
-        <div className="max-w-5xl mx-auto" style={{ padding: "20px 24px", position: "relative" }}>
-          <label className="flex flex-col gap-1 text-sm" style={{ position: "absolute", top: 20, left: 24 }}>
-            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 700, letterSpacing: -0.2, color: "#fff" }}>DANH SÁCH</span>
-          </label>
-          <label className="flex flex-col gap-1 text-sm" style={{ position: "absolute", top: 20, right: 24 }}>
-            <span style={{ color: "#9BA89E", fontSize: 12.5 }}>Vai trò xem thử</span>
-            <select value={role} onChange={(e) => setRole(e.target.value)} style={{ ...inputStyle, minWidth: 190, background: "#1E2D22", color: "#fff", border: "1.5px solid #2C3E31" }}>
-              {ROLES.map((r) => <option key={r.id} value={r.id} style={{ color: C.ink }}>{r.label}</option>)}
-            </select>
-          </label>
+        <div
+          className="max-w-5xl mx-auto flex items-center justify-between"
+          style={{ padding: "16px 24px", gap: 16, flexWrap: "wrap" }}
+        >
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, letterSpacing: -0.1, color: "#fff", lineHeight: 1.3 }}>
+            CLB bóng bàn Sao Mai - An Giang: Danh sách VĐV bóng bàn
+          </div>
+          <div>
+            {!currentUser ? (
+              <button style={{ ...btnPrimary, padding: "8px 18px", fontSize: 13.5 }} onClick={() => setShowLogin(true)}>
+                Đăng nhập
+              </button>
+            ) : (
+              <div className="flex items-center gap-3">
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ color: "#fff", fontSize: 13.5, fontWeight: 700 }}>{currentUser.username}</div>
+                  <div style={{ color: "#9BA89E", fontSize: 11.5 }}>{ROLE_LABEL[currentUser.role] || currentUser.role}</div>
+                </div>
+                <button style={{ ...btnGhost, padding: "7px 14px", fontSize: 13, borderColor: "#3A4A3E", color: "#fff" }} onClick={logout}>
+                  Đăng xuất
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="max-w-5xl mx-auto flex gap-1" style={{ padding: "0 24px" }}>
+        <div className="max-w-5xl mx-auto flex gap-1" style={{ padding: "0 24px", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
           {visibleTabs.map((t) => (
             <button
               key={t.id} onClick={() => setTab(t.id)}
               style={{
-                background: "transparent", border: "none",
+                background: "transparent", border: "none", whiteSpace: "nowrap",
                 borderBottom: tab === t.id ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
                 color: tab === t.id ? "#fff" : "#8B9A90", fontWeight: tab === t.id ? 700 : 500,
                 fontSize: 14, padding: "10px 14px", cursor: "pointer",
@@ -436,6 +506,10 @@ export default function App() {
           ))}
         </div>
       </div>
+
+      {showLogin && (
+        <LoginModal onClose={() => setShowLogin(false)} onLogin={login} />
+      )}
 
       <div className="max-w-5xl mx-auto" style={{ padding: "24px" }}>
         {loadError && (
@@ -481,6 +555,10 @@ export default function App() {
 
         {tab === "enter-match" && canEnterMatches && (
           <EnterMatchTab data={data} onAddMatch={addMatch} />
+        )}
+
+        {tab === "users" && role === "admin" && (
+          <UsersTab onCreateUser={createUser} onUpdateRole={updateUserRole} onResetPassword={resetUserPassword} />
         )}
       </div>
     </div>
@@ -688,6 +766,7 @@ function PlayerDetail({ player, history, canManage, onEdit, onBack }) {
   const [idNumber, setIdNumber] = useState(player.id_number || "");
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [rating, setRating] = useState(player.rating);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -700,7 +779,7 @@ function PlayerDetail({ player, history, canManage, onEdit, onBack }) {
   function startEdit() {
     setName(player.name); setNickname(player.nickname || "");
     setBirthYear(player.birth_year || ""); setIdNumber(player.id_number || "");
-    setPhotoFile(null); setPhotoPreview(null);
+    setPhotoFile(null); setPhotoPreview(null); setRating(player.rating);
     setEditing(true);
   }
   function onPickPhoto(e) {
@@ -716,6 +795,7 @@ function PlayerDetail({ player, history, canManage, onEdit, onBack }) {
       await onEdit(player.id, {
         name: name.trim(), nickname: nickname.trim(),
         birthYear: birthYear ? Number(birthYear) : null, idNumber: idNumber.trim(), photoFile,
+        newRating: Number(rating) !== player.rating ? Number(rating) : undefined,
       });
       setEditing(false);
     } catch (err) {
@@ -773,6 +853,14 @@ function PlayerDetail({ player, history, canManage, onEdit, onBack }) {
               <Field label="Năm sinh (tuỳ chọn)"><input type="number" style={inputStyle} value={birthYear} onChange={(e) => setBirthYear(e.target.value)} /></Field>
               <Field label="CCCD (tuỳ chọn)"><input style={inputStyle} value={idNumber} onChange={(e) => setIdNumber(e.target.value)} /></Field>
             </div>
+            <Field label="Điểm rating">
+              <input type="number" style={inputStyle} value={rating} onChange={(e) => setRating(e.target.value)} />
+            </Field>
+            {Number(rating) !== player.rating && (
+              <div style={{ fontSize: 12.5, color: C.gold, background: C.gold + "14", borderRadius: 8, padding: "8px 12px" }}>
+                Sửa điểm thủ công sẽ ghi lại vào lịch sử điểm ({player.rating} → {rating}) — chỉ dùng khi thật sự cần chỉnh lại sai sót.
+              </div>
+            )}
             {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
             <div className="flex gap-2">
               <button type="submit" style={btnPrimary} disabled={saving}>{saving ? "Đang lưu…" : "Lưu thay đổi"}</button>
@@ -1111,7 +1199,7 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
 /* ---------- Enter match ---------- */
 function EnterMatchTab({ data, onAddMatch }) {
   const openTournaments = data.tournaments.filter((t) => t.status !== "da_ket_thuc");
-  const [kind, setKind] = useState(openTournaments.length > 0 ? "giai" : "giao_huu");
+  const [kind, setKind] = useState("giao_huu");
   const [mode, setMode] = useState("don");
   const [tournamentId, setTournamentId] = useState("");
   const [friendlyDate, setFriendlyDate] = useState(todayStr());
@@ -1306,6 +1394,171 @@ function FriendlyMatchesTab({ data, canManage, onEditMatch, onDeleteMatch }) {
         <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "0 16px" }}>
           {friendly.map((m) => (
             <MatchRow key={m.id} match={m} data={data} canManage={canManage} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Đăng nhập ---------- */
+function LoginModal({ onClose, onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError(""); setLoading(true);
+    try {
+      await onLogin(username, password);
+      onClose();
+    } catch (err) {
+      setError(err.message || "Đăng nhập thất bại.");
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}
+      onClick={onClose}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: C.surface, borderRadius: 14, padding: 24, width: "100%", maxWidth: 360 }}
+        className="flex flex-col gap-3"
+      >
+        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: FONT_DISPLAY }}>Đăng nhập</div>
+        <Field label="Tên đăng nhập">
+          <input style={inputStyle} value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus />
+        </Field>
+        <Field label="Mật khẩu">
+          <input type="password" style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} required />
+        </Field>
+        {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
+        <div className="flex gap-2" style={{ marginTop: 4 }}>
+          <button type="submit" style={btnPrimary} disabled={loading}>{loading ? "Đang đăng nhập…" : "Đăng nhập"}</button>
+          <button type="button" style={btnGhost} onClick={onClose}>Huỷ</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* ---------- Quản lý User ---------- */
+const ROLE_OPTIONS = [
+  { id: "admin", label: "Quản trị viên" },
+  { id: "manager", label: "Quản lý giải đấu" },
+  { id: "scorer", label: "Người nhập liệu" },
+  { id: "user", label: "Người dùng" },
+];
+
+function UsersTab({ onCreateUser, onUpdateRole, onResetPassword }) {
+  const [users, setUsers] = useState(null);
+  const [loadErr, setLoadErr] = useState("");
+  const [open, setOpen] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [newRole, setNewRole] = useState("user");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function load() {
+    try {
+      const list = await apiGet("/users/");
+      setUsers(list);
+      setLoadErr("");
+    } catch (e) {
+      setLoadErr(e.message || "Không tải được danh sách user.");
+    }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!username.trim() || !password) return;
+    setSaving(true); setError("");
+    try {
+      await onCreateUser({ username: username.trim(), password, newRole });
+      setUsername(""); setPassword(""); setNewRole("user"); setOpen(false);
+      await load();
+    } catch (err) {
+      setError(err.message || "Có lỗi khi tạo user.");
+    }
+    setSaving(false);
+  }
+
+  async function changeRole(userId, role) {
+    try {
+      await onUpdateRole(userId, role);
+      await load();
+    } catch (err) {
+      alert(err.message || "Có lỗi khi đổi vai trò.");
+    }
+  }
+
+  async function resetPassword(userId, uname) {
+    const pw = window.prompt(`Đặt mật khẩu mới cho "${uname}":`);
+    if (!pw) return;
+    try {
+      await onResetPassword(userId, pw);
+      alert("Đã đổi mật khẩu.");
+    } catch (err) {
+      alert(err.message || "Có lỗi khi đổi mật khẩu.");
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        {!open ? (
+          <button style={btnPrimary} onClick={() => setOpen(true)}>+ Thêm user</button>
+        ) : (
+          <form onSubmit={submit} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 16 }} className="flex flex-col gap-3">
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Tên đăng nhập">
+                <input style={inputStyle} value={username} onChange={(e) => setUsername(e.target.value)} required />
+              </Field>
+              <Field label="Mật khẩu">
+                <input type="password" style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} required />
+              </Field>
+              <Field label="Vai trò">
+                <select style={inputStyle} value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+                  {ROLE_OPTIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                </select>
+              </Field>
+            </div>
+            {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
+            <div className="flex gap-2">
+              <button type="submit" style={btnPrimary} disabled={saving}>{saving ? "Đang lưu…" : "Lưu user"}</button>
+              <button type="button" style={btnGhost} onClick={() => setOpen(false)}>Huỷ</button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {loadErr && <EmptyState text={loadErr} />}
+
+      {users === null ? null : users.length === 0 ? (
+        <EmptyState text="Chưa có user nào." />
+      ) : (
+        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14 }}>
+          {users.map((u, i) => (
+            <div key={u.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: i < users.length - 1 ? `1px solid ${C.line}` : "none", flexWrap: "wrap", gap: 8 }}>
+              <div>
+                <div style={{ fontWeight: 700 }}>{u.username}</div>
+                {u.email && <div style={{ fontSize: 12, color: C.muted }}>{u.email}</div>}
+              </div>
+              <div className="flex items-center gap-2">
+                <select style={{ ...inputStyle, padding: "6px 10px", fontSize: 13 }} value={u.role} onChange={(e) => changeRole(u.id, e.target.value)}>
+                  {ROLE_OPTIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                </select>
+                <button style={{ ...btnGhost, padding: "6px 12px", fontSize: 12.5 }} onClick={() => resetPassword(u.id, u.username)}>Đổi mật khẩu</button>
+              </div>
+            </div>
           ))}
         </div>
       )}

@@ -181,6 +181,43 @@ def edit_match(match, *, player_a, player_b, player_a2=None, player_b2=None, set
     return match
 
 
+ROLE_GROUP = {
+    "admin": "QuanTriVien",
+    "manager": "QuanLyGiaiDau",
+    "scorer": "NguoiNhapLieu",
+    "user": "NguoiDung",
+}
+GROUP_ROLE = {v: k for k, v in ROLE_GROUP.items()}
+
+
+def get_role(user):
+    """Xác định vai trò của user: admin/manager/scorer/user, hoặc None nếu chưa đăng nhập."""
+    if not user or not user.is_authenticated:
+        return None
+    if user.is_superuser:
+        return "admin"
+    names = set(user.groups.values_list("name", flat=True))
+    for group_name in names:
+        role = GROUP_ROLE.get(group_name)
+        if role:
+            return role
+    return "user"
+
+
+def adjust_rating(player, new_rating, reason=None):
+    """Admin chỉnh sửa trực tiếp điểm rating của VĐV, có ghi lại lịch sử điểm."""
+    new_rating = int(new_rating)
+    if new_rating == player.rating:
+        return None
+    before = player.rating
+    player.rating = new_rating
+    player.save(update_fields=["rating"])
+    return PointHistory.objects.create(
+        player=player, date=timezone.localdate(), before=before, after=new_rating,
+        delta=new_rating - before, reason=reason or "Quản trị viên chỉnh sửa điểm thủ công",
+    )
+
+
 def record_result(*, tournament, player, placement):
     """Cộng điểm thưởng một lần theo thành tích chung cuộc của giải."""
     bonus = compute_bonus(placement, tournament.type)

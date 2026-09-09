@@ -1,6 +1,52 @@
+from django.contrib.auth.models import User
 from rest_framework import serializers
 
+from . import services
 from .models import Match, Player, PointHistory, Tournament, TournamentResult
+
+
+class UserSerializer(serializers.ModelSerializer):
+    role = serializers.SerializerMethodField()
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    new_role = serializers.ChoiceField(choices=list(services.ROLE_GROUP.keys()), write_only=True, required=False)
+
+    class Meta:
+        model = User
+        fields = ["id", "username", "email", "is_active", "role", "password", "new_role"]
+
+    def get_role(self, obj):
+        return services.get_role(obj)
+
+    def create(self, validated_data):
+        password = validated_data.pop("password", None)
+        role = validated_data.pop("new_role", "user")
+        validated_data.pop("password", None)
+        user = User(username=validated_data["username"], email=validated_data.get("email", ""))
+        if password:
+            user.set_password(password)
+        user.save()
+        self._apply_role(user, role)
+        return user
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+        role = validated_data.pop("new_role", None)
+        instance.email = validated_data.get("email", instance.email)
+        instance.is_active = validated_data.get("is_active", instance.is_active)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        if role:
+            self._apply_role(instance, role)
+        return instance
+
+    def _apply_role(self, user, role):
+        from django.contrib.auth.models import Group
+        user.groups.clear()
+        group_name = services.ROLE_GROUP.get(role)
+        if group_name:
+            group, _ = Group.objects.get_or_create(name=group_name)
+            user.groups.add(group)
 
 
 class PlayerSerializer(serializers.ModelSerializer):

@@ -1,16 +1,8 @@
-"""
-LƯU Ý VỀ PHÂN QUYỀN:
-Bản này chưa có màn hình đăng nhập ở frontend React, nên API đang để mở
-(AllowAny) cho mọi thao tác, kể cả ghi — đúng bằng đúng mức độ "phân quyền
-mô phỏng" của bản demo trước, chỉ khác là dữ liệu giờ nằm trong PostgreSQL thật.
-
-Khi triển khai public, hãy:
-1. Bật lại IsAdminOrManagerOrScorerOrReadOnly bên dưới cho từng ViewSet.
-2. Thêm màn hình đăng nhập ở frontend (session hoặc token auth của DRF).
-3. Gán user vào 1 trong 3 nhóm đã tạo sẵn: QuanTriVien, QuanLyGiaiDau, NguoiNhapLieu
-   (xem lệnh `python manage.py setup_groups`).
-"""
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
 from rest_framework import permissions, viewsets
+from rest_framework.authtoken.models import Token
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -19,40 +11,89 @@ from .models import Match, Player, PointHistory, Tournament, TournamentResult
 from .serializers import (
     MatchCreateSerializer, MatchSerializer, MatchUpdateSerializer, PlayerSerializer,
     PointHistorySerializer, ResultCreateSerializer, ResultSerializer,
-    TournamentSerializer,
+    TournamentSerializer, UserSerializer,
 )
 
 
-class IsAdminOrManagerOrScorerOrReadOnly(permissions.BasePermission):
-    """Sẵn sàng dùng khi có đăng nhập: ai cũng xem được, chỉnh sửa cần thuộc nhóm quyền."""
+def _role_permission(*allowed_roles):
+    """Tạo permission class: ai cũng xem được, chỉ vai trò trong allowed_roles mới được ghi."""
 
-    def has_permission(self, request, view):
-        if request.method in permissions.SAFE_METHODS:
-            return True
-        user = request.user
-        if not (user and user.is_authenticated):
-            return False
-        if user.is_superuser:
-            return True
-        return user.groups.filter(name__in=["QuanTriVien", "QuanLyGiaiDau", "NguoiNhapLieu"]).exists()
+    class _Perm(permissions.BasePermission):
+        def has_permission(self, request, view):
+            if request.method in permissions.SAFE_METHODS:
+                return True
+            role = services.get_role(request.user)
+            return role in allowed_roles
+
+    return _Perm
+
+
+IsAdminOnly = _role_permission("admin")
+IsAdminOrManager = _role_permission("admin", "manager")
+IsAdminOrManagerOrScorer = _role_permission("admin", "manager", "scorer")
+
+
+# ================= Đăng nhập / đăng xuất / thông tin bản thân =================
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def login_view(request):
+    username = request.data.get("username", "")
+    password = request.data.get("password", "")
+    user = authenticate(request, username=username, password=password)
+    if not user:
+        return Response({"detail": "Sai tên đăng nhập hoặc mật khẩu."}, status=400)
+    token, _ = Token.objects.get_or_create(user=user)
+    return Response({"token": token.key, "username": user.username, "role": services.get_role(user)})
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def logout_view(request):
+    Token.objects.filter(user=request.user).delete()
+    return Response(status=204)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def me_view(request):
+    return Response({"username": request.user.username, "role": services.get_role(request.user)})
+
+
+# ================= Quản lý User (chỉ Quản trị viên) =================
+
+class UserViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.all().order_by("username")
+    serializer_class = UserSerializer
+    permission_classes = [IsAdminOnly]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
 
 class PlayerViewSet(viewsets.ModelViewSet):
     queryset = Player.objects.all().order_by("-rating")
     serializer_class = PlayerSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [IsAdminOnly]
+
+    @action(detail=True, methods=["post"])
+    def adjust_rating(self, request, pk=None):
+        player = self.get_object()
+        new_rating = request.data.get("rating")
+        if new_rating is None:
+            raise ValidationError("Thiếu giá trị rating mới.")
+        services.adjust_rating(player, new_rating)
+        return Response(PlayerSerializer(player, context={"request": request}).data)
 
 
 class TournamentViewSet(viewsets.ModelViewSet):
     queryset = Tournament.objects.all().order_by("-date")
     serializer_class = TournamentSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [IsAdminOrManager]
 
 
 class MatchViewSet(viewsets.ModelViewSet):
     queryset = Match.objects.all().order_by("-date")
     serializer_class = MatchSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [IsAdminOrManagerOrScorer]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def create(self, request, *args, **kwargs):
@@ -100,7 +141,7 @@ class MatchViewSet(viewsets.ModelViewSet):
 class ResultViewSet(viewsets.ModelViewSet):
     queryset = TournamentResult.objects.all()
     serializer_class = ResultSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [IsAdminOrManager]
     http_method_names = ["get", "post", "head", "options"]
 
     def create(self, request, *args, **kwargs):
