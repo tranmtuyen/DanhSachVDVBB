@@ -136,6 +136,26 @@ def delete_match(match):
     match.delete()
 
 
+def delete_player(player):
+    """
+    Xóa VĐV: hoàn tác điểm cho các VĐV KHÁC từng thi đấu cùng (mỗi trận bị xóa
+    sẽ hoàn tác điểm cho cả 2 bên trước khi xóa), xóa toàn bộ trận đấu và
+    thành tích giải đấu của VĐV này, rồi mới xóa chính VĐV đó.
+    """
+    matches = (
+        Match.objects.filter(player_a=player)
+        | Match.objects.filter(player_b=player)
+        | Match.objects.filter(player_a2=player)
+        | Match.objects.filter(player_b2=player)
+    ).distinct()
+    for m in matches:
+        _revert(m)  # hoàn tác điểm cho VĐV còn lại (và cả VĐV này, không quan trọng vì sắp xóa)
+        m.delete()
+
+    TournamentResult.objects.filter(player=player).delete()
+    player.delete()
+
+
 def edit_match(match, *, player_a, player_b, player_a2=None, player_b2=None, sets_a, sets_b, date=None):
     """Sửa lại 1 trận đã có: hoàn tác ảnh hưởng cũ, tính lại theo thông tin mới."""
     if sets_a == sets_b:

@@ -374,6 +374,11 @@ export default function App() {
     await refreshAll();
   }
 
+  async function deletePlayer(playerId) {
+    await apiDelete(`/players/${playerId}/`);
+    await refreshAll();
+  }
+
   async function addTournament({ name, type, date }) {
     await apiPostJSON("/tournaments/", { name, type, date });
     await refreshAll();
@@ -532,8 +537,14 @@ export default function App() {
           <PlayerDetail
             player={players.find((p) => p.id === selectedPlayer.id) || selectedPlayer}
             history={history.filter((h) => h.player === selectedPlayer.id)}
+            matches={matches}
+            allPlayers={players}
             canManage={canManagePlayers}
+            canManageMatches={canEnterMatches}
             onEdit={editPlayer}
+            onDeletePlayer={deletePlayer}
+            onEditMatch={editMatch}
+            onDeleteMatch={deleteMatch}
             onBack={() => setTab("players")}
           />
         )}
@@ -755,7 +766,7 @@ function PlayersTab({ players, canManage, onAdd, onSelect }) {
   );
 }
 
-function PlayerDetail({ player, history, canManage, onEdit, onBack }) {
+function PlayerDetail({ player, history, matches, allPlayers, canManage, canManageMatches, onEdit, onDeletePlayer, onEditMatch, onDeleteMatch, onBack }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(player.name);
   const [nickname, setNickname] = useState(player.nickname || "");
@@ -827,7 +838,27 @@ function PlayerDetail({ player, history, canManage, onEdit, onBack }) {
                 {player.id_number && <div><span style={{ color: C.muted }}>CCCD: </span><span style={{ fontWeight: 600 }}>{player.id_number}</span></div>}
               </div>
             )}
-            {canManage && <button style={{ ...btnGhost, marginTop: 14 }} onClick={startEdit}>Chỉnh sửa thông tin</button>}
+            {canManage && (
+              <div className="flex gap-2" style={{ marginTop: 14 }}>
+                <button style={btnGhost} onClick={startEdit}>Chỉnh sửa thông tin</button>
+                <button
+                  style={{ ...btnGhost, color: C.bad, borderColor: C.bad + "55" }}
+                  onClick={async () => {
+                    if (!window.confirm(
+                      `Xóa vĩnh viễn VĐV "${player.name}"?\n\nToàn bộ trận đấu của VĐV này sẽ bị xóa, điểm của các VĐV từng thi đấu cùng sẽ được hoàn tác về đúng trước khi thi đấu. Hành động này không thể hoàn tác.`
+                    )) return;
+                    try {
+                      await onDeletePlayer(player.id);
+                      onBack();
+                    } catch (err) {
+                      alert(err.message || "Có lỗi khi xóa VĐV.");
+                    }
+                  }}
+                >
+                  Xóa VĐV
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <form onSubmit={saveEdit} className="flex flex-col gap-3">
@@ -886,28 +917,34 @@ function PlayerDetail({ player, history, canManage, onEdit, onBack }) {
         {history.length === 0 ? (
           <div style={{ padding: 16 }}><EmptyState text="Chưa có lịch sử điểm." /></div>
         ) : (
-          history.map((h, i, arr) => (
-            <div key={h.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
-              <div>
-                <div className="flex items-center gap-2" style={{ fontSize: 13.5 }}>
-                  {h.match_result && (
-                    <span style={{
-                      fontSize: 11, fontWeight: 700, padding: "1px 8px", borderRadius: 999,
-                      background: h.match_result === "thắng" ? C.pillUpBg : C.pillDownBg,
-                      color: h.match_result === "thắng" ? C.pillUpText : C.pillDownText,
-                    }}>
-                      {h.match_result === "thắng" ? "Thắng" : "Thua"} {h.match_score}
-                    </span>
-                  )}
-                  <span>{h.reason}</span>
+          history.map((h, i, arr) => {
+            const linkedMatch = h.match ? matches.find((m) => m.id === h.match) : null;
+            if (linkedMatch) {
+              return (
+                <div key={h.id} style={{ padding: "0 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                  <MatchRow
+                    match={linkedMatch}
+                    data={{ players: allPlayers }}
+                    canManage={canManageMatches}
+                    onEditMatch={onEditMatch}
+                    onDeleteMatch={onDeleteMatch}
+                    showDate
+                  />
                 </div>
-                <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{fmtDate(h.date)}</div>
+              );
+            }
+            return (
+              <div key={h.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                <div>
+                  <div style={{ fontSize: 13.5 }}>{h.reason}</div>
+                  <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{fmtDate(h.date)}</div>
+                </div>
+                <div className="tabular" style={{ fontWeight: 700, color: h.delta >= 0 ? "#1E8E52" : C.bad }}>
+                  {h.delta >= 0 ? "+" : ""}{h.delta}
+                </div>
               </div>
-              <div className="tabular" style={{ fontWeight: 700, color: h.is_doubles ? C.muted : h.delta >= 0 ? "#1E8E52" : C.bad, fontSize: h.is_doubles ? 12 : 14 }}>
-                {h.is_doubles ? "Không tính điểm" : <>{h.delta >= 0 ? "+" : ""}{h.delta}</>}
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

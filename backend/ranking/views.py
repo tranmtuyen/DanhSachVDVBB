@@ -74,6 +74,11 @@ class PlayerViewSet(viewsets.ModelViewSet):
     serializer_class = PlayerSerializer
     permission_classes = [IsAdminOnly]
 
+    def destroy(self, request, *args, **kwargs):
+        player = self.get_object()
+        services.delete_player(player)
+        return Response(status=204)
+
     @action(detail=True, methods=["post"])
     def adjust_rating(self, request, pk=None):
         player = self.get_object()
