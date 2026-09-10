@@ -25,6 +25,14 @@ class Player(models.Model):
     @property
     def hang(self):
         r = self.rating
+        if r >= 2201:
+            return "Chuyên"
+        if r >= 2001:
+            return "A"
+        if r >= 1801:
+            return "B"
+        if r >= 1601:
+            return "C"
         if r >= 1401:
             return "D"
         if r >= 1201:

@@ -28,7 +28,10 @@ const C = {
   bad: "#D6453B",
 };
 
-const HANG_COLOR = { D: "#1E8E52", E: "#3E8B62", F: "#B8862B", G: "#C9772E", H: "#8A8A85" };
+const HANG_COLOR = {
+  "Chuyên": "#7C3AED", A: "#2563EB", B: "#0891B2", C: "#059669",
+  D: "#1E8E52", E: "#3E8B62", F: "#B8862B", G: "#C9772E", H: "#8A8A85",
+};
 const FONT_DISPLAY = "'Be Vietnam Pro', sans-serif";
 const FONT_BODY = "'Be Vietnam Pro', sans-serif";
 
@@ -472,14 +475,31 @@ export default function App() {
 
       {/* Header */}
       <div style={{ background: C.ink }}>
+        <div className="max-w-5xl mx-auto" style={{ padding: "16px 24px 0" }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, letterSpacing: -0.1, color: "#fff", lineHeight: 1.3 }}>
+            HỆ THỐNG DANH SÁCH VẬN ĐỘNG VIÊN BÓNG BÀN
+          </div>
+        </div>
         <div
           className="max-w-5xl mx-auto flex items-center justify-between"
-          style={{ padding: "16px 24px", gap: 16, flexWrap: "wrap" }}
+          style={{ padding: "8px 24px 0", gap: 16, flexWrap: "wrap" }}
         >
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, letterSpacing: -0.1, color: "#fff", lineHeight: 1.3 }}>
-           HỆ THỐNG DANH SÁCH VẬN ĐỘNG VIÊN BÓNG BÀN
+          <div className="flex gap-1" style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            {visibleTabs.map((t) => (
+              <button
+                key={t.id} onClick={() => setTab(t.id)}
+                style={{
+                  background: "transparent", border: "none", whiteSpace: "nowrap",
+                  borderBottom: tab === t.id ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
+                  color: tab === t.id ? "#fff" : "#8B9A90", fontWeight: tab === t.id ? 700 : 500,
+                  fontSize: 14, padding: "10px 14px", cursor: "pointer",
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
-          <div>
+          <div style={{ paddingBottom: 8 }}>
             {!currentUser ? (
               <button style={{ ...btnPrimary, padding: "8px 18px", fontSize: 13.5 }} onClick={() => setShowLogin(true)}>
                 Đăng nhập
@@ -496,21 +516,6 @@ export default function App() {
               </div>
             )}
           </div>
-        </div>
-        <div className="max-w-5xl mx-auto flex gap-1" style={{ padding: "0 24px", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-          {visibleTabs.map((t) => (
-            <button
-              key={t.id} onClick={() => setTab(t.id)}
-              style={{
-                background: "transparent", border: "none", whiteSpace: "nowrap",
-                borderBottom: tab === t.id ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
-                color: tab === t.id ? "#fff" : "#8B9A90", fontWeight: tab === t.id ? 700 : 500,
-                fontSize: 14, padding: "10px 14px", cursor: "pointer",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -659,6 +664,37 @@ function Leaderboard({ players, matches, history, onSelect }) {
 }
 
 /* ---------- Players ---------- */
+const RANK_LEGEND = [
+  { hang: "Chuyên", range: "> 2200" },
+  { hang: "A", range: "2001 – 2200" },
+  { hang: "B", range: "1801 – 2000" },
+  { hang: "C", range: "1601 – 1800" },
+  { hang: "D", range: "1401 – 1600" },
+  { hang: "E", range: "1201 – 1400" },
+  { hang: "F", range: "1001 – 1200" },
+  { hang: "G", range: "801 – 1000" },
+  { hang: "H", range: "< 800" },
+];
+
+function RankLegend() {
+  return (
+    <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "12px 16px" }}>
+      <div style={{ fontSize: 12, color: C.muted, fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.3 }}>
+        Quy đổi hạng theo điểm rating
+      </div>
+      <div className="flex flex-wrap gap-3">
+        {RANK_LEGEND.map((r) => (
+          <div key={r.hang} className="flex items-center gap-1.5" style={{ fontSize: 12.5 }}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: HANG_COLOR[r.hang] }} />
+            <span style={{ fontWeight: 700, color: HANG_COLOR[r.hang] }}>Hạng {r.hang}</span>
+            <span style={{ color: C.muted }}>{r.range}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PlayersTab({ players, canManage, onAdd, onSelect }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -703,6 +739,8 @@ function PlayersTab({ players, canManage, onAdd, onSelect }) {
 
   return (
     <div className="flex flex-col gap-4">
+      <RankLegend />
+
       {canManage && (
         <div>
           {!open ? (
