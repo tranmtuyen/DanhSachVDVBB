@@ -291,6 +291,24 @@ function lastDeltaOf(playerId, history) {
   return { delta: last.delta, isDoubles: !!last.is_doubles };
 }
 
+function NavIcon({ name }) {
+  const p = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
+  if (name === "leaderboard") return <svg {...p}><path d="M4 20V11M12 20V4M20 20v-6" /></svg>;
+  if (name === "players") return <svg {...p}><circle cx="12" cy="8" r="3.3" /><path d="M5 20c0-4 3-6.2 7-6.2s7 2.2 7 6.2" /></svg>;
+  if (name === "tournament") return <svg {...p}><path d="M7 4h10v4a5 5 0 0 1-10 0V4Z" /><path d="M7 6H4.7A1.7 1.7 0 0 0 3 7.7c0 2 1.5 3.4 3 3.6M17 6h2.3A1.7 1.7 0 0 1 21 7.7c0 2-1.5 3.4-3 3.6" /><path d="M12 13v3M9.5 20h5M10.2 17h3.6v3h-3.6z" /></svg>;
+  if (name === "friendly") return <svg {...p}><circle cx="8" cy="9" r="3" /><circle cx="16" cy="9" r="3" /><path d="M2.5 20c0-3.3 2.5-5.5 5.5-5.5M21.5 20c0-3.3-2.5-5.5-5.5-5.5" /></svg>;
+  if (name === "enter") return <svg {...p}><path d="M4 20h4l10.2-10.2-4-4L4 16v4Z" /><path d="M13.2 6.8l4 4" /></svg>;
+  if (name === "users") return <svg {...p}><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z" /></svg>;
+  return null;
+}
+function LoginIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 17l5-5-5-5M15 12H3M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" />
+    </svg>
+  );
+}
+
 /* ================= APP ================= */
 export default function App() {
   const [players, setPlayers] = useState([]);
@@ -442,12 +460,12 @@ export default function App() {
   const canEnterMatches = role === "admin" || role === "manager" || role === "scorer";
 
   const visibleTabs = [
-    { id: "leaderboard", label: "Bảng xếp hạng", show: true },
-    { id: "players", label: "Vận động viên", show: true },
-    { id: "tournaments", label: "Giải đấu", show: true },
-    { id: "friendly", label: "Giao hữu", show: true },
-    { id: "enter-match", label: "Nhập trận đấu", show: canEnterMatches },
-    { id: "users", label: "Quản lý User", show: role === "admin" },
+    { id: "leaderboard", label: "Bảng xếp hạng", icon: "leaderboard", show: true },
+    { id: "players", label: "Vận động viên", icon: "players", show: true },
+    { id: "tournaments", label: "Giải đấu", icon: "tournament", show: true },
+    { id: "friendly", label: "Giao hữu", icon: "friendly", show: true },
+    { id: "enter-match", label: "Nhập trận đấu", icon: "enter", show: canEnterMatches },
+    { id: "users", label: "Quản lý User", icon: "users", show: role === "admin" },
   ].filter((t) => t.show);
 
   useEffect(() => {
@@ -462,7 +480,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ background: C.bg, minHeight: "100%", fontFamily: FONT_BODY, color: C.ink }}>
+    <div style={{ background: C.bg, minHeight: "100vh", fontFamily: FONT_BODY, color: C.ink, display: "flex" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600;1,700&display=swap');
         * { box-sizing: border-box; }
@@ -474,76 +492,87 @@ export default function App() {
         select, input { font-family: inherit; }
         input:focus, select:focus { border-color: ${C.accent} !important; }
         tr[data-row]:hover { background: ${C.bg}; }
+        .tt-sidebar { width: 232px; flex-shrink: 0; }
+        .tt-sidebar-label { display: inline; }
+        @media (max-width: 720px) {
+          .tt-sidebar { width: 62px; }
+          .tt-sidebar-label, .tt-sidebar-brand-text, .tt-sidebar-user-info { display: none !important; }
+          .tt-nav-item { justify-content: center !important; }
+        }
       `}</style>
 
-      {/* Header */}
-      <div style={{ background: C.ink }}>
-        <div className="max-w-5xl mx-auto" style={{ padding: "16px 24px 0" }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 700, letterSpacing: -0.1, color: "#fff", lineHeight: 1.3 }}>
-            HỆ THỐNG DANH SÁCH VẬN ĐỘNG VIÊN BÓNG BÀN
+      {/* Sidebar */}
+      <div className="tt-sidebar" style={{ background: C.ink, minHeight: "100vh", display: "flex", flexDirection: "column", position: "sticky", top: 0 }}>
+        <div className="flex items-center gap-2.5" style={{ padding: "20px 18px" }}>
+          <PaddleIcon />
+          <div className="tt-sidebar-brand-text" style={{ lineHeight: 1.2 }}>
+            <div style={{ color: "#fff", fontWeight: 800, fontSize: 14, fontFamily: FONT_DISPLAY }}>CLB SAO MAI</div>
+            <div style={{ color: "#9BA89E", fontSize: 11 }}>An Giang</div>
           </div>
         </div>
-        <div
-          className="max-w-5xl mx-auto flex items-center justify-between"
-          style={{ padding: "8px 24px 0", gap: 16, flexWrap: "wrap" }}
-        >
-          <div className="flex gap-1" style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-            {visibleTabs.map((t) => (
-              <button
-                key={t.id} onClick={() => setTab(t.id)}
-                style={{
-                  background: "transparent", border: "none", whiteSpace: "nowrap",
-                  borderBottom: tab === t.id ? `2.5px solid ${C.accent}` : "2.5px solid transparent",
-                  color: tab === t.id ? "#fff" : "#8B9A90", fontWeight: tab === t.id ? 700 : 500,
-                  fontSize: 14, padding: "10px 14px", cursor: "pointer",
-                }}
+
+        <div className="flex flex-col gap-1" style={{ padding: "8px 12px", flex: 1 }}>
+          {visibleTabs.map((t) => (
+            <button
+              key={t.id} onClick={() => setTab(t.id)}
+              className="tt-nav-item flex items-center gap-2.5"
+              style={{
+                border: "none", cursor: "pointer", textAlign: "left", padding: "10px 12px", borderRadius: 10,
+                background: tab === t.id ? `linear-gradient(90deg, #7C3AED, ${C.accent})` : "transparent",
+                color: tab === t.id ? "#fff" : "#9BA89E", fontWeight: tab === t.id ? 700 : 500, fontSize: 13.5,
+              }}
+            >
+              <NavIcon name={t.icon} />
+              <span className="tt-sidebar-label" style={{ whiteSpace: "nowrap" }}>{t.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div style={{ padding: 14, borderTop: "1px solid #212E27", position: "relative" }}>
+          {!currentUser ? (
+            <button
+              onClick={() => setShowLogin(true)}
+              className="flex items-center justify-center gap-2"
+              style={{
+                width: "100%", border: "none", cursor: "pointer", padding: "11px 14px", borderRadius: 10,
+                background: `linear-gradient(90deg, #7C3AED, ${C.accent})`, color: "#fff", fontWeight: 700, fontSize: 13.5,
+              }}
+            >
+              <LoginIcon /> <span className="tt-sidebar-label">Đăng Nhập</span>
+            </button>
+          ) : (
+            <>
+              <div
+                className="flex items-center justify-between"
+                style={{ cursor: "pointer" }}
+                onClick={() => setShowUserMenu((v) => !v)}
               >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <div style={{ paddingBottom: 8, position: "relative" }}>
-            {!currentUser ? (
-              <span
-                onClick={() => setShowLogin(true)}
-                style={{ color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}
-              >
-                Đăng nhập
-              </span>
-            ) : (
-              <>
-                <div
-                  className="flex items-center gap-2"
-                  style={{ cursor: "pointer" }}
-                  onClick={() => setShowUserMenu((v) => !v)}
-                >
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ color: "#fff", fontSize: 13.5, fontWeight: 700 }}>{currentUser.username}</div>
-                    <div style={{ color: "#9BA89E", fontSize: 11.5 }}>{ROLE_LABEL[currentUser.role] || currentUser.role}</div>
-                  </div>
-                  <span style={{ color: "#9BA89E", fontSize: 11, transform: showUserMenu ? "rotate(180deg)" : "none" }}>▼</span>
+                <div className="tt-sidebar-user-info">
+                  <div style={{ color: "#fff", fontSize: 13, fontWeight: 700 }}>{currentUser.username}</div>
+                  <div style={{ color: "#9BA89E", fontSize: 11 }}>{ROLE_LABEL[currentUser.role] || currentUser.role}</div>
                 </div>
-                {showUserMenu && (
-                  <>
-                    <div style={{ position: "fixed", inset: 0, zIndex: 39 }} onClick={() => setShowUserMenu(false)} />
-                    <div
-                      style={{
-                        position: "absolute", top: "100%", right: 0, marginTop: 8, background: C.surface,
-                        borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.2)", overflow: "hidden", minWidth: 130, zIndex: 40,
-                      }}
+                <span style={{ color: "#9BA89E", fontSize: 11, transform: showUserMenu ? "none" : "rotate(180deg)" }}>▲</span>
+              </div>
+              {showUserMenu && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 39 }} onClick={() => setShowUserMenu(false)} />
+                  <div
+                    style={{
+                      position: "absolute", bottom: "100%", left: 14, right: 14, marginBottom: 8, background: C.surface,
+                      borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.25)", overflow: "hidden", zIndex: 40,
+                    }}
+                  >
+                    <button
+                      onClick={() => { setShowUserMenu(false); logout(); }}
+                      style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", color: C.bad, fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}
                     >
-                      <button
-                        onClick={() => { setShowUserMenu(false); logout(); }}
-                        style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", color: C.bad, fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}
-                      >
-                        Đăng xuất
-                      </button>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-          </div>
+                      Đăng xuất
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -551,56 +580,59 @@ export default function App() {
         <LoginModal onClose={() => setShowLogin(false)} onLogin={login} />
       )}
 
-      <div className="max-w-5xl mx-auto" style={{ padding: "24px" }}>
-        {loadError && (
-          <div style={{ background: "#FBEAE7", color: C.bad, border: `1px solid ${C.bad}33`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13.5 }}>
-            {loadError}
-          </div>
-        )}
-       
-        {tab === "leaderboard" && (
-          <Leaderboard players={players} matches={matches} history={history} onSelect={(p) => { setSelectedPlayer(p); setTab("player-detail"); }} />
-        )}
+      {/* Main content */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px" }}>
+          {loadError && (
+            <div style={{ background: "#FBEAE7", color: C.bad, border: `1px solid ${C.bad}33`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13.5 }}>
+              {loadError}
+            </div>
+          )}
 
-        {tab === "players" && (
-          <PlayersTab players={players} canManage={canManagePlayers} onAdd={addPlayer} onSelect={(p) => { setSelectedPlayer(p); setTab("player-detail"); }} />
-        )}
+          {tab === "leaderboard" && (
+            <Leaderboard players={players} matches={matches} history={history} onSelect={(p) => { setSelectedPlayer(p); setTab("player-detail"); }} />
+          )}
 
-        {tab === "player-detail" && selectedPlayer && (
-          <PlayerDetail
-            player={players.find((p) => p.id === selectedPlayer.id) || selectedPlayer}
-            history={history.filter((h) => h.player === selectedPlayer.id)}
-            matches={matches}
-            allPlayers={players}
-            canManage={canManagePlayers}
-            canManageMatches={canEnterMatches}
-            onEdit={editPlayer}
-            onDeletePlayer={deletePlayer}
-            onEditMatch={editMatch}
-            onDeleteMatch={deleteMatch}
-            onBack={() => setTab("players")}
-          />
-        )}
+          {tab === "players" && (
+            <PlayersTab players={players} canManage={canManagePlayers} onAdd={addPlayer} onSelect={(p) => { setSelectedPlayer(p); setTab("player-detail"); }} />
+          )}
 
-        {tab === "tournaments" && (
-          <TournamentsTab
-            data={data} canCreate={canManageTournaments} canEnterResults={canEnterResults} canEnterMatches={canEnterMatches}
-            onAddTournament={addTournament} onCloseTournament={closeTournament} onAddResult={addResult}
-            onEditMatch={editMatch} onDeleteMatch={deleteMatch}
-          />
-        )}
+          {tab === "player-detail" && selectedPlayer && (
+            <PlayerDetail
+              player={players.find((p) => p.id === selectedPlayer.id) || selectedPlayer}
+              history={history.filter((h) => h.player === selectedPlayer.id)}
+              matches={matches}
+              allPlayers={players}
+              canManage={canManagePlayers}
+              canManageMatches={canEnterMatches}
+              onEdit={editPlayer}
+              onDeletePlayer={deletePlayer}
+              onEditMatch={editMatch}
+              onDeleteMatch={deleteMatch}
+              onBack={() => setTab("players")}
+            />
+          )}
 
-        {tab === "friendly" && (
-          <FriendlyMatchesTab data={data} canManage={canEnterMatches} onEditMatch={editMatch} onDeleteMatch={deleteMatch} />
-        )}
+          {tab === "tournaments" && (
+            <TournamentsTab
+              data={data} canCreate={canManageTournaments} canEnterResults={canEnterResults} canEnterMatches={canEnterMatches}
+              onAddTournament={addTournament} onCloseTournament={closeTournament} onAddResult={addResult}
+              onEditMatch={editMatch} onDeleteMatch={deleteMatch}
+            />
+          )}
 
-        {tab === "enter-match" && canEnterMatches && (
-          <EnterMatchTab data={data} onAddMatch={addMatch} />
-        )}
+          {tab === "friendly" && (
+            <FriendlyMatchesTab data={data} canManage={canEnterMatches} onEditMatch={editMatch} onDeleteMatch={deleteMatch} />
+          )}
 
-        {tab === "users" && role === "admin" && (
-          <UsersTab onCreateUser={createUser} onUpdateRole={updateUserRole} onResetPassword={resetUserPassword} />
-        )}
+          {tab === "enter-match" && canEnterMatches && (
+            <EnterMatchTab data={data} onAddMatch={addMatch} />
+          )}
+
+          {tab === "users" && role === "admin" && (
+            <UsersTab onCreateUser={createUser} onUpdateRole={updateUserRole} onResetPassword={resetUserPassword} />
+          )}
+        </div>
       </div>
     </div>
   );
