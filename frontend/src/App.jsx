@@ -139,10 +139,12 @@ function photoUrl(p) {
 function HangBadge({ hang }) {
   return (
     <span
-      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
-      style={{ background: HANG_COLOR[hang] + "17", color: HANG_COLOR[hang], fontFamily: FONT_DISPLAY, letterSpacing: 0.2 }}
+      className="inline-flex items-center gap-1 rounded-full"
+      style={{
+        background: HANG_COLOR[hang] + "17", color: HANG_COLOR[hang], fontFamily: FONT_DISPLAY,
+        fontSize: 10.5, fontWeight: 700, letterSpacing: 0.1, padding: "2px 8px", whiteSpace: "nowrap",
+      }}
     >
-      <span className="w-1.5 h-1.5 rounded-full" style={{ background: HANG_COLOR[hang] }} />
       Hạng {hang}
     </span>
   );
@@ -304,6 +306,7 @@ export default function App() {
   const [tab, setTab] = useState("leaderboard");
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [showLogin, setShowLogin] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   const role = currentUser?.role || "public";
 
@@ -499,21 +502,46 @@ export default function App() {
               </button>
             ))}
           </div>
-          <div style={{ paddingBottom: 8 }}>
+          <div style={{ paddingBottom: 8, position: "relative" }}>
             {!currentUser ? (
-              <button style={{ ...btnPrimary, padding: "8px 18px", fontSize: 13.5 }} onClick={() => setShowLogin(true)}>
+              <span
+                onClick={() => setShowLogin(true)}
+                style={{ color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+              >
                 Đăng nhập
-              </button>
+              </span>
             ) : (
-              <div className="flex items-center gap-3">
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ color: "#fff", fontSize: 13.5, fontWeight: 700 }}>{currentUser.username}</div>
-                  <div style={{ color: "#9BA89E", fontSize: 11.5 }}>{ROLE_LABEL[currentUser.role] || currentUser.role}</div>
+              <>
+                <div
+                  className="flex items-center gap-2"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setShowUserMenu((v) => !v)}
+                >
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ color: "#fff", fontSize: 13.5, fontWeight: 700 }}>{currentUser.username}</div>
+                    <div style={{ color: "#9BA89E", fontSize: 11.5 }}>{ROLE_LABEL[currentUser.role] || currentUser.role}</div>
+                  </div>
+                  <span style={{ color: "#9BA89E", fontSize: 11, transform: showUserMenu ? "rotate(180deg)" : "none" }}>▼</span>
                 </div>
-                <button style={{ ...btnGhost, padding: "7px 14px", fontSize: 13, borderColor: "#3A4A3E", color: "#fff" }} onClick={logout}>
-                  Đăng xuất
-                </button>
-              </div>
+                {showUserMenu && (
+                  <>
+                    <div style={{ position: "fixed", inset: 0, zIndex: 39 }} onClick={() => setShowUserMenu(false)} />
+                    <div
+                      style={{
+                        position: "absolute", top: "100%", right: 0, marginTop: 8, background: C.surface,
+                        borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.2)", overflow: "hidden", minWidth: 130, zIndex: 40,
+                      }}
+                    >
+                      <button
+                        onClick={() => { setShowUserMenu(false); logout(); }}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", color: C.bad, fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}
+                      >
+                        Đăng xuất
+                      </button>
+                    </div>
+                  </>
+                )}
+              </>
             )}
           </div>
         </div>
