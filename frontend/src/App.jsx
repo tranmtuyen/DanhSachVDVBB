@@ -763,19 +763,16 @@ const RANK_LEGEND = [
 
 function RankLegend() {
   return (
-    <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "12px 16px" }}>
-      <div style={{ fontSize: 12, color: C.muted, fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.3 }}>
-        Quy đổi hạng theo điểm rating
-      </div>
-      <div className="flex flex-wrap gap-3">
-        {RANK_LEGEND.map((r) => (
-          <div key={r.hang} className="flex items-center gap-1.5" style={{ fontSize: 12.5 }}>
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: HANG_COLOR[r.hang] }} />
-            <span style={{ fontWeight: 700, color: HANG_COLOR[r.hang] }}>Hạng {r.hang}</span>
-            <span style={{ color: C.muted }}>{r.range}</span>
-          </div>
-        ))}
-      </div>
+    <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "10px 14px", overflowX: "auto", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginRight: 12 }}>
+        Hạng theo điểm tương đương:
+      </span>
+      {RANK_LEGEND.map((r, i) => (
+        <span key={r.hang} style={{ fontSize: 12, marginRight: i < RANK_LEGEND.length - 1 ? 14 : 0 }}>
+          <span style={{ fontWeight: 700, color: HANG_COLOR[r.hang] }}>Hạng {r.hang}</span>
+          <span style={{ color: C.muted }}> {r.range}</span>
+        </span>
+      ))}
     </div>
   );
 }
