@@ -543,7 +543,7 @@ export default function App() {
               className="tt-nav-item flex items-center gap-2.5"
               style={{
                 border: "none", cursor: "pointer", textAlign: "left", padding: "10px 12px", borderRadius: 10,
-                background: tab === t.id ? `linear-gradient(90deg, ${C.accentSoft}, ${C.accent})` : "transparent",
+                background: tab === t.id ? C.accent : "transparent",
                 color: tab === t.id ? "#fff" : "#9BA89E", fontWeight: tab === t.id ? 700 : 500, fontSize: 13.5,
               }}
             >
@@ -560,7 +560,7 @@ export default function App() {
               className="flex items-center justify-center gap-2"
               style={{
                 width: "100%", border: "none", cursor: "pointer", padding: "11px 14px", borderRadius: 10,
-                background: `linear-gradient(90deg, ${C.accentSoft}, ${C.accent})`, color: "#fff", fontWeight: 700, fontSize: 13.5,
+                background: C.accent, color: "#fff", fontWeight: 700, fontSize: 13.5,
               }}
             >
               <LoginIcon /> <span className="tt-sidebar-label">Đăng Nhập</span>
@@ -1052,6 +1052,7 @@ function PlayerDetail({ player, history, matches, allPlayers, canManage, canMana
                     onEditMatch={onEditMatch}
                     onDeleteMatch={onDeleteMatch}
                     showDate
+                    perspectivePlayerId={player.id}
                   />
                 </div>
               );
@@ -1075,7 +1076,7 @@ function PlayerDetail({ player, history, matches, allPlayers, canManage, canMana
 }
 
 /* ---------- Match row (dùng chung: có thể sửa/xóa) ---------- */
-function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showDate }) {
+function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showDate, perspectivePlayerId }) {
   const isDoubles = m.mode === "doi";
   const [editing, setEditing] = useState(false);
   const [playerAId, setPlayerAId] = useState(m.player_a);
@@ -1093,6 +1094,15 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
   const pB2 = isDoubles ? data.players.find((p) => p.id === m.player_b2) : null;
   const labelA = isDoubles ? `${pA?.name} & ${pA2?.name}` : pA?.name;
   const labelB = isDoubles ? `${pB?.name} & ${pB2?.name}` : pB?.name;
+
+  // Hiển thị theo góc nhìn 1 VĐV cụ thể (dùng trong "Lịch sử điểm" của VĐV đó)
+  let perspective = null;
+  if (perspectivePlayerId) {
+    const isASide = m.player_a === perspectivePlayerId || m.player_a2 === perspectivePlayerId;
+    const selfWon = (isASide && m.winner_side === "A") || (!isASide && m.winner_side === "B");
+    const scoreText = isASide ? `${m.sets_a}–${m.sets_b}` : `${m.sets_b}–${m.sets_a}`;
+    perspective = { selfLabel: isASide ? labelA : labelB, oppLabel: isASide ? labelB : labelA, selfWon, scoreText };
+  }
 
   async function save(e) {
     e.preventDefault();
@@ -1162,7 +1172,22 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
       <div>
         <div className="flex items-center gap-2">
           {isDoubles && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px" }}>ĐÔI</span>}
-          <span>{labelA} {m.sets_a}–{m.sets_b} {labelB}</span>
+          {perspective ? (
+            <>
+              <span
+                style={{
+                  fontSize: 11, fontWeight: 700, padding: "1px 8px", borderRadius: 999,
+                  background: perspective.selfWon ? C.pillUpBg : C.pillDownBg,
+                  color: perspective.selfWon ? C.pillUpText : C.pillDownText,
+                }}
+              >
+                {perspective.selfWon ? "Thắng" : "Thua"} {perspective.scoreText}
+              </span>
+              <span>{perspective.selfLabel} vs {perspective.oppLabel}</span>
+            </>
+          ) : (
+            <span>{labelA} {m.sets_a}–{m.sets_b} {labelB}</span>
+          )}
         </div>
         {showDate && <div style={{ fontSize: 12, color: C.muted }}>{fmtDate(m.date)}</div>}
       </div>
