@@ -73,6 +73,12 @@ function normalizeVN(s) {
     .replace(/đ/g, "d");
 }
 
+/* Lấy "Tên" (chữ cuối cùng trong Họ tên đầy đủ kiểu Việt Nam) để sắp xếp ABC theo Tên, không phải Họ */
+function tenRieng(fullName) {
+  const parts = (fullName || "").trim().split(/\s+/);
+  return parts[parts.length - 1] || "";
+}
+
 const ROLE_LABEL = {
   admin: "Quản trị viên",
   manager: "Quản lý giải đấu",
@@ -460,6 +466,7 @@ export default function App() {
   const canManageTournaments = role === "admin" || role === "manager";
   const canEnterResults = role === "admin" || role === "manager";
   const canEnterMatches = role === "admin" || role === "manager" || role === "scorer";
+  const canManageMatches = role === "admin"; // chỉ Quản trị viên được sửa/xóa trận đấu
 
   const visibleTabs = [
     { id: "leaderboard", label: "Bảng xếp hạng", icon: "leaderboard", show: true },
@@ -624,12 +631,14 @@ export default function App() {
 
           {tab === "player-detail" && selectedPlayer && (
             <PlayerDetail
+              key={selectedPlayer.id}
               player={players.find((p) => p.id === selectedPlayer.id) || selectedPlayer}
               history={history.filter((h) => h.player === selectedPlayer.id)}
               matches={matches}
+              tournaments={tournaments}
               allPlayers={players}
               canManage={canManagePlayers}
-              canManageMatches={canEnterMatches}
+              canManageMatches={canManageMatches}
               onEdit={editPlayer}
               onDeletePlayer={deletePlayer}
               onEditMatch={editMatch}
@@ -640,14 +649,14 @@ export default function App() {
 
           {tab === "tournaments" && (
             <TournamentsTab
-              data={data} canCreate={canManageTournaments} canEnterResults={canEnterResults} canEnterMatches={canEnterMatches}
+              data={data} canCreate={canManageTournaments} canEnterResults={canEnterResults} canEnterMatches={canEnterMatches} canManageMatches={canManageMatches}
               onAddTournament={addTournament} onCloseTournament={closeTournament} onAddResult={addResult}
               onEditMatch={editMatch} onDeleteMatch={deleteMatch}
             />
           )}
 
           {tab === "friendly" && (
-            <FriendlyMatchesTab data={data} canManage={canEnterMatches} onEditMatch={editMatch} onDeleteMatch={deleteMatch} />
+            <FriendlyMatchesTab data={data} canManage={canManageMatches} onEditMatch={editMatch} onDeleteMatch={deleteMatch} />
           )}
 
           {tab === "enter-match" && canEnterMatches && (
@@ -765,7 +774,7 @@ function RankLegend() {
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "10px 14px", overflowX: "auto", whiteSpace: "nowrap" }}>
       <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginRight: 12 }}>
-        Hạng theo điểm tương đương:
+        Quy đổi hạng:
       </span>
       {RANK_LEGEND.map((r, i) => (
         <span key={r.hang} style={{ fontSize: 12, marginRight: i < RANK_LEGEND.length - 1 ? 14 : 0 }}>
@@ -790,11 +799,16 @@ function PlayersTab({ players, canManage, onAdd, onSelect }) {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
 
+  const sortedByTen = useMemo(
+    () => [...players].sort((a, b) => tenRieng(a.name).localeCompare(tenRieng(b.name), "vi")),
+    [players]
+  );
+
   const filteredPlayers = useMemo(() => {
     const q = normalizeVN(query.trim());
-    if (!q) return players;
-    return players.filter((p) => normalizeVN(`${p.name} ${p.nickname || ""}`).includes(q));
-  }, [players, query]);
+    if (!q) return sortedByTen;
+    return sortedByTen.filter((p) => normalizeVN(`${p.name} ${p.nickname || ""}`).includes(q));
+  }, [sortedByTen, query]);
 
   function onPickPhoto(e) {
     const file = e.target.files?.[0] || null;
@@ -886,7 +900,7 @@ function PlayersTab({ players, canManage, onAdd, onSelect }) {
   );
 }
 
-function PlayerDetail({ player, history, matches, allPlayers, canManage, canManageMatches, onEdit, onDeletePlayer, onEditMatch, onDeleteMatch, onBack }) {
+function PlayerDetail({ player, history, matches, tournaments, allPlayers, canManage, canManageMatches, onEdit, onDeletePlayer, onEditMatch, onDeleteMatch, onBack }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(player.name);
   const [nickname, setNickname] = useState(player.nickname || "");
@@ -897,6 +911,8 @@ function PlayerDetail({ player, history, matches, allPlayers, canManage, canMana
   const [rating, setRating] = useState(player.rating);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [historyPage, setHistoryPage] = useState(1);
+  const HISTORY_PAGE_SIZE = 20;
 
   const chronoHistory = useMemo(() => [...history].reverse(), [history]); // API trả mới nhất trước → đảo lại cho biểu đồ
   const chartData = useMemo(() => {
@@ -1037,35 +1053,38 @@ function PlayerDetail({ player, history, matches, allPlayers, canManage, canMana
         {history.length === 0 ? (
           <div style={{ padding: 16 }}><EmptyState text="Chưa có lịch sử điểm." /></div>
         ) : (
-          history.map((h, i, arr) => {
-            const linkedMatch = h.match ? matches.find((m) => m.id === h.match) : null;
-            if (linkedMatch) {
+          <>
+            {history.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE).map((h, i, arr) => {
+              const linkedMatch = h.match ? matches.find((m) => m.id === h.match) : null;
+              if (linkedMatch) {
+                return (
+                  <div key={h.id} style={{ padding: "0 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                    <MatchRow
+                      match={linkedMatch}
+                      data={{ players: allPlayers, tournaments }}
+                      canManage={canManageMatches}
+                      onEditMatch={onEditMatch}
+                      onDeleteMatch={onDeleteMatch}
+                      showDate
+                      perspectivePlayerId={player.id}
+                    />
+                  </div>
+                );
+              }
               return (
-                <div key={h.id} style={{ padding: "0 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
-                  <MatchRow
-                    match={linkedMatch}
-                    data={{ players: allPlayers }}
-                    canManage={canManageMatches}
-                    onEditMatch={onEditMatch}
-                    onDeleteMatch={onDeleteMatch}
-                    showDate
-                    perspectivePlayerId={player.id}
-                  />
+                <div key={h.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                  <div>
+                    <div style={{ fontSize: 13.5 }}>{h.reason}</div>
+                    <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{fmtDate(h.date)}</div>
+                  </div>
+                  <div className="tabular" style={{ fontWeight: 700, color: h.delta >= 0 ? "#1E8E52" : C.bad }}>
+                    {h.delta >= 0 ? "+" : ""}{h.delta}
+                  </div>
                 </div>
               );
-            }
-            return (
-              <div key={h.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
-                <div>
-                  <div style={{ fontSize: 13.5 }}>{h.reason}</div>
-                  <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{fmtDate(h.date)}</div>
-                </div>
-                <div className="tabular" style={{ fontWeight: 700, color: h.delta >= 0 ? "#1E8E52" : C.bad }}>
-                  {h.delta >= 0 ? "+" : ""}{h.delta}
-                </div>
-              </div>
-            );
-          })
+            })}
+            <Pagination page={historyPage} totalPages={Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE))} onChange={setHistoryPage} />
+          </>
         )}
       </div>
     </div>
@@ -1098,7 +1117,10 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
     const isASide = m.player_a === perspectivePlayerId || m.player_a2 === perspectivePlayerId;
     const selfWon = (isASide && m.winner_side === "A") || (!isASide && m.winner_side === "B");
     const scoreText = isASide ? `${m.sets_a}–${m.sets_b}` : `${m.sets_b}–${m.sets_a}`;
-    perspective = { selfLabel: isASide ? labelA : labelB, oppLabel: isASide ? labelB : labelA, selfWon, scoreText };
+    const contextLabel = m.tournament
+      ? (data.tournaments?.find((t) => t.id === m.tournament)?.name || "Giải đấu")
+      : "Giao hữu";
+    perspective = { selfLabel: isASide ? labelA : labelB, oppLabel: isASide ? labelB : labelA, selfWon, scoreText, contextLabel };
   }
 
   async function save(e) {
@@ -1187,6 +1209,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
           )}
         </div>
         {showDate && <div style={{ fontSize: 12, color: C.muted }}>{fmtDate(m.date)}</div>}
+        {perspective && <div style={{ fontSize: 11.5, color: C.muted, opacity: 0.75, marginTop: 1 }}>{perspective.contextLabel}</div>}
       </div>
       <div className="flex items-center gap-3">
         <span className="tabular" style={{ color: C.muted }}>
@@ -1204,7 +1227,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
 }
 
 /* ---------- Tournaments ---------- */
-function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, onAddTournament, onCloseTournament, onAddResult, onEditMatch, onDeleteMatch }) {
+function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, canManageMatches, onAddTournament, onCloseTournament, onAddResult, onEditMatch, onDeleteMatch }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("khong_chap");
@@ -1276,7 +1299,7 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, onA
             <TournamentCard
               key={t.id} tournament={t} data={data}
               expanded={expanded === t.id} onToggle={() => setExpanded(expanded === t.id ? null : t.id)}
-              canEnterResults={canEnterResults} canEnterMatches={canEnterMatches}
+              canEnterResults={canEnterResults} canEnterMatches={canEnterMatches} canManageMatches={canManageMatches}
               onCloseTournament={onCloseTournament} onAddResult={onAddResult}
               onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
             />
@@ -1287,7 +1310,7 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, onA
   );
 }
 
-function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, onCloseTournament, onAddResult, onEditMatch, onDeleteMatch }) {
+function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, canManageMatches, onCloseTournament, onAddResult, onEditMatch, onDeleteMatch }) {
   const matches = data.matches.filter((m) => m.tournament === t.id);
   const results = data.results.filter((r) => r.tournament === t.id);
   const [placement, setPlacement] = useState("vo_dich");
@@ -1326,7 +1349,7 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
               <div style={{ fontSize: 13, color: C.muted }}>Chưa có trận nào trong giải này.</div>
             ) : (
               matches.map((m) => (
-                <MatchRow key={m.id} match={m} data={data} canManage={canEnterMatches} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate={false} />
+                <MatchRow key={m.id} match={m} data={data} canManage={canManageMatches} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate={false} />
               ))
             )}
           </div>

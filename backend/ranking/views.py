@@ -98,8 +98,15 @@ class TournamentViewSet(viewsets.ModelViewSet):
 class MatchViewSet(viewsets.ModelViewSet):
     queryset = Match.objects.all().order_by("-date")
     serializer_class = MatchSerializer
-    permission_classes = [IsAdminOrManagerOrScorer]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_permissions(self):
+        # Sửa/xóa trận đấu: chỉ Quản trị viên. Tạo trận mới: giữ nguyên như cũ (admin/manager/scorer).
+        if self.action in ("partial_update", "destroy"):
+            return [IsAdminOnly()]
+        if self.action == "create":
+            return [IsAdminOrManagerOrScorer()]
+        return [permissions.AllowAny()]
 
     def create(self, request, *args, **kwargs):
         serializer = MatchCreateSerializer(data=request.data)
