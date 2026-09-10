@@ -14,11 +14,12 @@ const API = `${API_ORIGIN}/api`;
 const C = {
   bg: "#F4F5FA",
   surface: "#FFFFFF",
-  ink: "#10162B",
+  ink: "#003659",       // navy logo
   muted: "#7A8194",
   line: "#E9EAF2",
-  nameColor: "#242E63",
-  accent: "#E2481F",
+  nameColor: "#003659",
+  accent: "#FF1135",     // đỏ logo
+  accentSoft: "#0E7FA3", // cyan/navy nhạt logo — dùng làm gradient
   gold: "#E3A13B",
   silver: "#9AA1B3",
   bronze: "#B77F4E",
@@ -325,6 +326,7 @@ export default function App() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [showLogin, setShowLogin] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const role = currentUser?.role || "public";
 
@@ -492,19 +494,42 @@ export default function App() {
         select, input { font-family: inherit; }
         input:focus, select:focus { border-color: ${C.accent} !important; }
         tr[data-row]:hover { background: ${C.bg}; }
-        .tt-sidebar { width: 232px; flex-shrink: 0; }
+        .tt-sidebar { width: 232px; flex-shrink: 0; transition: width 160ms ease; }
         .tt-sidebar-label { display: inline; }
+        .tt-mobile-toggle { display: none; }
         @media (max-width: 720px) {
           .tt-sidebar { width: 62px; }
           .tt-sidebar-label, .tt-sidebar-brand-text, .tt-sidebar-user-info { display: none !important; }
           .tt-nav-item { justify-content: center !important; }
+          .tt-mobile-toggle { display: flex !important; }
+          .tt-sidebar.tt-sidebar-open {
+            width: 240px; position: fixed; top: 0; left: 0; height: 100vh; z-index: 60;
+            box-shadow: 4px 0 24px rgba(0,0,0,0.35);
+          }
+          .tt-sidebar.tt-sidebar-open .tt-sidebar-label,
+          .tt-sidebar.tt-sidebar-open .tt-sidebar-brand-text,
+          .tt-sidebar.tt-sidebar-open .tt-sidebar-user-info { display: inline !important; }
+          .tt-sidebar.tt-sidebar-open .tt-nav-item { justify-content: flex-start !important; }
         }
       `}</style>
 
+      {mobileMenuOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 55 }} onClick={() => setMobileMenuOpen(false)} />
+      )}
+
       {/* Sidebar */}
-      <div className="tt-sidebar" style={{ background: C.ink, minHeight: "100vh", display: "flex", flexDirection: "column", position: "sticky", top: 0 }}>
-        <div className="flex items-center gap-2.5" style={{ padding: "20px 18px" }}>
-          <PaddleIcon />
+      <div className={`tt-sidebar${mobileMenuOpen ? " tt-sidebar-open" : ""}`} style={{ background: C.ink, minHeight: "100vh", display: "flex", flexDirection: "column", position: "sticky", top: 0 }}>
+        <button
+          className="tt-mobile-toggle"
+          onClick={() => setMobileMenuOpen((v) => !v)}
+          style={{ alignItems: "center", justifyContent: "center", width: "100%", padding: "16px 0 4px", background: "transparent", border: "none", color: "#fff", fontSize: 20, cursor: "pointer" }}
+          aria-label="Mở menu"
+        >
+          {mobileMenuOpen ? "✕" : "☰"}
+        </button>
+
+        <div className="flex items-center gap-2.5" style={{ padding: "12px 18px 18px" }}>
+          <img src="/logo-sao-mai.png" alt="CLB Sao Mai" style={{ width: 40, height: 40, objectFit: "contain", flexShrink: 0 }} />
           <div className="tt-sidebar-brand-text" style={{ lineHeight: 1.2 }}>
             <div style={{ color: "#fff", fontWeight: 800, fontSize: 14, fontFamily: FONT_DISPLAY }}>CLB SAO MAI</div>
             <div style={{ color: "#9BA89E", fontSize: 11 }}>An Giang</div>
@@ -514,11 +539,11 @@ export default function App() {
         <div className="flex flex-col gap-1" style={{ padding: "8px 12px", flex: 1 }}>
           {visibleTabs.map((t) => (
             <button
-              key={t.id} onClick={() => setTab(t.id)}
+              key={t.id} onClick={() => { setTab(t.id); setMobileMenuOpen(false); }}
               className="tt-nav-item flex items-center gap-2.5"
               style={{
                 border: "none", cursor: "pointer", textAlign: "left", padding: "10px 12px", borderRadius: 10,
-                background: tab === t.id ? `linear-gradient(90deg, #7C3AED, ${C.accent})` : "transparent",
+                background: tab === t.id ? `linear-gradient(90deg, ${C.accentSoft}, ${C.accent})` : "transparent",
                 color: tab === t.id ? "#fff" : "#9BA89E", fontWeight: tab === t.id ? 700 : 500, fontSize: 13.5,
               }}
             >
@@ -535,7 +560,7 @@ export default function App() {
               className="flex items-center justify-center gap-2"
               style={{
                 width: "100%", border: "none", cursor: "pointer", padding: "11px 14px", borderRadius: 10,
-                background: `linear-gradient(90deg, #7C3AED, ${C.accent})`, color: "#fff", fontWeight: 700, fontSize: 13.5,
+                background: `linear-gradient(90deg, ${C.accentSoft}, ${C.accent})`, color: "#fff", fontWeight: 700, fontSize: 13.5,
               }}
             >
               <LoginIcon /> <span className="tt-sidebar-label">Đăng Nhập</span>
