@@ -291,7 +291,7 @@ function PlayerCombobox({ players, value, onChange, placeholder, excludeIds }) {
   return (
     <div style={{ position: "relative" }}>
       <input
-        style={{ ...inputStyle, paddingRight: 34, cursor: open ? "text" : "pointer" }}
+        style={{ ...inputStyle, width: "100%", paddingRight: 34, cursor: open ? "text" : "pointer" }}
         value={open ? query : selected ? `${selected.name}${selected.nickname ? ` (${selected.nickname})` : ""}` : ""}
         placeholder={placeholder || (open ? "Gõ để tìm theo tên hoặc biệt danh…" : "— Chọn VĐV —")}
         onFocus={() => { setQuery(""); setOpen(true); }}
