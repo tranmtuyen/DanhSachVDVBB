@@ -274,6 +274,7 @@ function NameWithNickname({ name, nickname }) {
 function PlayerCombobox({ players, value, onChange, placeholder, excludeIds }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [hoverId, setHoverId] = useState(null);
   const selected = players.find((p) => p.id === Number(value));
 
   const available = useMemo(
@@ -290,31 +291,43 @@ function PlayerCombobox({ players, value, onChange, placeholder, excludeIds }) {
   return (
     <div style={{ position: "relative" }}>
       <input
-        style={inputStyle}
+        style={{ ...inputStyle, paddingRight: 34, cursor: open ? "text" : "pointer" }}
         value={open ? query : selected ? `${selected.name}${selected.nickname ? ` (${selected.nickname})` : ""}` : ""}
-        placeholder={placeholder || "Gõ để tìm theo tên hoặc biệt danh…"}
+        placeholder={placeholder || (open ? "Gõ để tìm theo tên hoặc biệt danh…" : "— Chọn VĐV —")}
         onFocus={() => { setQuery(""); setOpen(true); }}
         onChange={(e) => setQuery(e.target.value)}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
       />
+      <span
+        style={{
+          position: "absolute", right: 12, top: "50%", transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)`,
+          color: C.muted, fontSize: 11, pointerEvents: "none", transition: "transform 120ms ease",
+        }}
+      >
+        ▼
+      </span>
       {open && (
         <div
+          className="tt-combobox-scroll"
           style={{
-            position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: C.surface,
-            border: `1px solid ${C.line}`, borderRadius: 10, maxHeight: 230, overflowY: "auto", zIndex: 45,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+            position: "absolute", top: "100%", left: 0, right: 0, marginTop: 6, background: C.surface,
+            border: `1px solid ${C.line}`, borderRadius: 10, maxHeight: 260, overflowY: "auto", zIndex: 45,
+            boxShadow: "0 10px 28px rgba(0,0,0,0.18)",
           }}
         >
           {filtered.length === 0 ? (
-            <div style={{ padding: "10px 12px", fontSize: 13, color: C.muted }}>Không tìm thấy VĐV nào khớp.</div>
+            <div style={{ padding: "12px 14px", fontSize: 13, color: C.muted }}>Không tìm thấy VĐV nào khớp.</div>
           ) : (
             filtered.map((p) => (
               <div
                 key={p.id}
                 onMouseDown={(e) => { e.preventDefault(); onChange(String(p.id)); setQuery(""); setOpen(false); }}
+                onMouseEnter={() => setHoverId(p.id)}
+                onMouseLeave={() => setHoverId(null)}
                 style={{
-                  padding: "9px 12px", fontSize: 13.5, cursor: "pointer",
-                  background: p.id === Number(value) ? C.bg : "transparent",
+                  padding: "11px 14px", fontSize: 13.5, cursor: "pointer",
+                  background: p.id === Number(value) ? C.bg : hoverId === p.id ? "#F7F4FB" : "transparent",
+                  borderBottom: `1px solid ${C.line}`,
                 }}
               >
                 <NameWithNickname name={p.name} nickname={p.nickname} />
@@ -572,6 +585,10 @@ export default function App() {
         select, input { font-family: inherit; }
         input:focus, select:focus { border-color: ${C.accent} !important; }
         tr[data-row]:hover { background: ${C.bg}; }
+        .tt-combobox-scroll::-webkit-scrollbar { width: 8px; }
+        .tt-combobox-scroll::-webkit-scrollbar-track { background: transparent; }
+        .tt-combobox-scroll::-webkit-scrollbar-thumb { background: ${C.line}; border-radius: 8px; }
+        .tt-combobox-scroll { scrollbar-width: thin; scrollbar-color: ${C.line} transparent; }
         .tt-sidebar { width: 232px; flex-shrink: 0; transition: width 160ms ease; }
         .tt-sidebar-label { display: inline; }
         .tt-mobile-toggle { display: none; }
