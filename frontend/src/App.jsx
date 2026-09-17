@@ -626,7 +626,7 @@ export default function App() {
         <div className="flex items-center gap-2.5" style={{ padding: "12px 18px 18px" }}>
           <img src="/logo-sao-mai.png" alt="CLB Sao Mai" style={{ width: 40, height: 40, objectFit: "contain", flexShrink: 0 }} />
           <div className="tt-sidebar-brand-text" style={{ lineHeight: 1.2 }}>
-            <div style={{ color: "#fff", fontWeight: 800, fontSize: 14, fontFamily: FONT_DISPLAY }}>CLB BÓNG BÀN SAO MAI - AN GIANG</div>           
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 12, fontFamily: "'Nunito', 'Segoe UI', Roboto, sans-serif" }}> CLB bóng bàn Sao Mai - An Giang </div>          
           </div>
         </div>
 
