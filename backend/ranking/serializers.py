@@ -67,7 +67,7 @@ class TournamentSerializer(serializers.ModelSerializer):
 class MatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = Match
-        fields = ["id", "tournament", "type", "mode", "player_a", "player_b", "player_a2", "player_b2",
+        fields = ["id", "tournament", "type", "mode", "status", "player_a", "player_b", "player_a2", "player_b2",
                   "sets_a", "sets_b", "winner_side", "delta_a", "delta_b", "date"]
         read_only_fields = ["type", "winner_side", "delta_a", "delta_b"]
 
@@ -75,17 +75,23 @@ class MatchSerializer(serializers.ModelSerializer):
 class MatchCreateSerializer(serializers.Serializer):
     tournament = serializers.PrimaryKeyRelatedField(queryset=Tournament.objects.all(), required=False, allow_null=True)
     mode = serializers.ChoiceField(choices=Match.MODE_CHOICES, default="don")
+    status = serializers.ChoiceField(choices=Match.STATUS_CHOICES, default="completed")
     player_a = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
     player_b = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
     player_a2 = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, allow_null=True)
     player_b2 = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, allow_null=True)
-    sets_a = serializers.IntegerField(min_value=0)
-    sets_b = serializers.IntegerField(min_value=0)
+    sets_a = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    sets_b = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     date = serializers.DateField(required=False)
 
     def validate(self, data):
-        if data["sets_a"] == data["sets_b"]:
-            raise serializers.ValidationError("Tỷ số không thể hòa.")
+        status = data.get("status", "completed")
+        sets_a, sets_b = data.get("sets_a"), data.get("sets_b")
+        if status == "completed":
+            if sets_a is None or sets_b is None:
+                raise serializers.ValidationError("Cần nhập tỷ số khi trận đấu đã kết thúc.")
+            if sets_a == sets_b:
+                raise serializers.ValidationError("Tỷ số không thể hòa.")
         if data.get("mode") == "doi":
             if not data.get("player_a2") or not data.get("player_b2"):
                 raise serializers.ValidationError("Đánh đôi cần đủ 2 VĐV mỗi đội.")
@@ -103,12 +109,13 @@ class MatchUpdateSerializer(serializers.Serializer):
     player_b = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
     player_a2 = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, allow_null=True)
     player_b2 = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, allow_null=True)
-    sets_a = serializers.IntegerField(min_value=0)
-    sets_b = serializers.IntegerField(min_value=0)
+    sets_a = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    sets_b = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     date = serializers.DateField(required=False)
 
     def validate(self, data):
-        if data["sets_a"] == data["sets_b"]:
+        sets_a, sets_b = data.get("sets_a"), data.get("sets_b")
+        if sets_a is not None and sets_b is not None and sets_a == sets_b:
             raise serializers.ValidationError("Tỷ số không thể hòa.")
         return data
 
@@ -130,4 +137,4 @@ class PointHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = PointHistory
         fields = ["id", "player", "date", "before", "after", "delta", "reason",
-                  "match", "match_score", "match_result", "is_doubles"]
+                  "match", "result", "match_score", "match_result", "is_doubles"]

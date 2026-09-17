@@ -75,6 +75,7 @@ class Match(models.Model):
     LOAI_TRAN_CHOICES = Tournament.LOAI_GIAI_CHOICES + [(GIAO_HUU, "Giao hữu")]
     MODE_CHOICES = [("don", "Đánh đơn"), ("doi", "Đánh đôi")]
     SIDE_CHOICES = [("A", "A"), ("B", "B")]
+    STATUS_CHOICES = [("completed", "Đã kết thúc"), ("scheduled", "Sắp diễn ra")]
 
     tournament = models.ForeignKey(
         Tournament, verbose_name="Giải đấu", null=True, blank=True,
@@ -82,6 +83,7 @@ class Match(models.Model):
     )
     type = models.CharField("Loại trận", max_length=20, choices=LOAI_TRAN_CHOICES)
     mode = models.CharField("Thể thức", max_length=10, choices=MODE_CHOICES, default="don")
+    status = models.CharField("Trạng thái trận đấu", max_length=12, choices=STATUS_CHOICES, default="completed")
     player_a = models.ForeignKey(Player, verbose_name="VĐV A", on_delete=models.CASCADE, related_name="matches_as_a")
     player_b = models.ForeignKey(Player, verbose_name="VĐV B", on_delete=models.CASCADE, related_name="matches_as_b")
     player_a2 = models.ForeignKey(
@@ -92,11 +94,11 @@ class Match(models.Model):
         Player, verbose_name="VĐV B2 (đôi)", null=True, blank=True,
         on_delete=models.CASCADE, related_name="matches_as_b2"
     )
-    sets_a = models.PositiveIntegerField("Số ván thắng A")
-    sets_b = models.PositiveIntegerField("Số ván thắng B")
-    winner_side = models.CharField("Bên thắng", max_length=1, choices=SIDE_CHOICES, default="A")
-    delta_a = models.IntegerField("Thay đổi điểm A")
-    delta_b = models.IntegerField("Thay đổi điểm B")
+    sets_a = models.PositiveIntegerField("Số ván thắng A", null=True, blank=True)
+    sets_b = models.PositiveIntegerField("Số ván thắng B", null=True, blank=True)
+    winner_side = models.CharField("Bên thắng", max_length=1, choices=SIDE_CHOICES, null=True, blank=True)
+    delta_a = models.IntegerField("Thay đổi điểm A", default=0)
+    delta_b = models.IntegerField("Thay đổi điểm B", default=0)
     date = models.DateField("Ngày diễn ra")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -142,6 +144,10 @@ class PointHistory(models.Model):
     reason = models.CharField("Lý do", max_length=255)
     match = models.ForeignKey(
         Match, verbose_name="Trận đấu liên quan", null=True, blank=True,
+        on_delete=models.CASCADE, related_name="history_entries"
+    )
+    result = models.ForeignKey(
+        TournamentResult, verbose_name="Thành tích giải liên quan", null=True, blank=True,
         on_delete=models.CASCADE, related_name="history_entries"
     )
     match_score = models.CharField("Tỷ số", max_length=20, blank=True, default="")

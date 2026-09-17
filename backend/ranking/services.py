@@ -52,14 +52,11 @@ def _reason_prefix(tournament, loai, is_doubles):
 
 
 def record_match(*, tournament, mode="don", player_a, player_b, player_a2=None, player_b2=None,
-                  sets_a, sets_b, date=None):
-    """Tạo 1 trận đấu (đơn hoặc đôi), tự tính điểm, cập nhật rating, ghi lịch sử điểm."""
-    if sets_a == sets_b:
-        raise ValueError("Tỷ số không thể hòa")
-
+                  sets_a=None, sets_b=None, date=None, status="completed"):
+    """Tạo 1 trận đấu (đơn hoặc đôi), tự tính điểm, cập nhật rating, ghi lịch sử điểm.
+    status="scheduled": trận sắp diễn ra, chưa có tỷ số, không tính điểm — chỉ ghi nhận lịch."""
     loai = tournament.type if tournament else Match.GIAO_HUU
     date = date or timezone.localdate()
-    winner_side = "A" if sets_a > sets_b else "B"
     is_doubles = mode == "doi"
 
     if is_doubles:
@@ -68,12 +65,30 @@ def record_match(*, tournament, mode="don", player_a, player_b, player_a2=None, 
         ids = {player_a.id, player_a2.id, player_b.id, player_b2.id}
         if len(ids) != 4:
             raise ValueError("4 VĐV trong trận đôi phải khác nhau")
+
+    if status == "scheduled":
+        match = Match.objects.create(
+            tournament=tournament, type=loai, mode=mode, status="scheduled",
+            player_a=player_a, player_b=player_b,
+            player_a2=player_a2 if is_doubles else None,
+            player_b2=player_b2 if is_doubles else None,
+            sets_a=None, sets_b=None, winner_side=None,
+            delta_a=0, delta_b=0, date=date,
+        )
+        return match
+
+    if sets_a is None or sets_b is None or sets_a == sets_b:
+        raise ValueError("Tỷ số không thể hòa")
+
+    winner_side = "A" if sets_a > sets_b else "B"
+
+    if is_doubles:
         delta_a, delta_b = 0, 0  # đánh đôi: không tính Elo
     else:
         delta_a, delta_b = compute_match_delta(player_a.rating, player_b.rating, winner_side, loai)
 
     match = Match.objects.create(
-        tournament=tournament, type=loai, mode=mode,
+        tournament=tournament, type=loai, mode=mode, status="completed",
         player_a=player_a, player_b=player_b,
         player_a2=player_a2 if is_doubles else None,
         player_b2=player_b2 if is_doubles else None,
@@ -156,11 +171,10 @@ def delete_player(player):
     player.delete()
 
 
-def edit_match(match, *, player_a, player_b, player_a2=None, player_b2=None, sets_a, sets_b, date=None):
-    """Sửa lại 1 trận đã có: hoàn tác ảnh hưởng cũ, tính lại theo thông tin mới."""
-    if sets_a == sets_b:
-        raise ValueError("Tỷ số không thể hòa")
-
+def edit_match(match, *, player_a, player_b, player_a2=None, player_b2=None, sets_a=None, sets_b=None, date=None):
+    """Sửa lại 1 trận đã có: hoàn tác ảnh hưởng cũ (nếu đã tính điểm), tính lại theo thông tin mới.
+    Nếu chưa nhập tỷ số (sets_a/sets_b rỗng): trận vẫn ở trạng thái "Sắp diễn ra", không tính điểm.
+    Nếu nhập tỷ số (lần đầu hoặc sửa lại): tính điểm và chuyển trạng thái "Đã kết thúc"."""
     is_doubles = match.mode == "doi"
     if is_doubles and (not player_a2 or not player_b2):
         raise ValueError("Đánh đôi cần đủ 2 VĐV mỗi đội")
@@ -169,14 +183,36 @@ def edit_match(match, *, player_a, player_b, player_a2=None, player_b2=None, set
         if len(ids) != 4:
             raise ValueError("4 VĐV trong trận đôi phải khác nhau")
 
-    _revert(match)
+    entering_score = sets_a is not None and sets_b is not None
+    if entering_score and sets_a == sets_b:
+        raise ValueError("Tỷ số không thể hòa")
 
-    # Nạp lại rating mới nhất (sau khi hoàn tác) từ DB
-    player_a.refresh_from_db()
-    player_b.refresh_from_db()
-    if is_doubles:
-        player_a2.refresh_from_db()
-        player_b2.refresh_from_db()
+    # Nếu trận trước đó đã tính điểm (Đã kết thúc), hoàn tác trước khi tính lại
+    if match.status == "completed":
+        _revert(match)
+        player_a.refresh_from_db()
+        player_b.refresh_from_db()
+        if is_doubles:
+            player_a2.refresh_from_db()
+            player_b2.refresh_from_db()
+
+    match.player_a = player_a
+    match.player_b = player_b
+    match.player_a2 = player_a2 if is_doubles else None
+    match.player_b2 = player_b2 if is_doubles else None
+    if date:
+        match.date = date
+
+    if not entering_score:
+        # Vẫn chưa có tỷ số: giữ ở trạng thái Sắp diễn ra
+        match.sets_a = None
+        match.sets_b = None
+        match.winner_side = None
+        match.delta_a = 0
+        match.delta_b = 0
+        match.status = "scheduled"
+        match.save()
+        return match
 
     winner_side = "A" if sets_a > sets_b else "B"
     if is_doubles:
@@ -184,17 +220,12 @@ def edit_match(match, *, player_a, player_b, player_a2=None, player_b2=None, set
     else:
         delta_a, delta_b = compute_match_delta(player_a.rating, player_b.rating, winner_side, match.type)
 
-    match.player_a = player_a
-    match.player_b = player_b
-    match.player_a2 = player_a2 if is_doubles else None
-    match.player_b2 = player_b2 if is_doubles else None
     match.sets_a = sets_a
     match.sets_b = sets_b
     match.winner_side = winner_side
     match.delta_a = delta_a
     match.delta_b = delta_b
-    if date:
-        match.date = date
+    match.status = "completed"
     match.save()
 
     _apply_and_log(match, is_doubles=is_doubles)
@@ -254,5 +285,26 @@ def record_result(*, tournament, player, placement):
     PointHistory.objects.create(
         player=player, date=timezone.localdate(), before=before, after=player.rating,
         delta=bonus, reason=f"Thưởng thành tích: {BONUS_LABEL[placement]} — {tournament.name}",
+        result=result,
     )
     return result
+
+
+def delete_tournament(tournament):
+    """
+    Xóa giải đấu: xóa toàn bộ trận đấu của giải (hoàn tác điểm cho VĐV liên quan),
+    xóa toàn bộ thành tích/điểm thưởng của giải (hoàn tác điểm cho VĐV nhận thưởng),
+    rồi mới xóa chính giải đấu đó.
+    """
+    for m in Match.objects.filter(tournament=tournament):
+        _revert(m)
+        m.delete()
+
+    for r in TournamentResult.objects.filter(tournament=tournament):
+        player = r.player
+        player.rating -= r.bonus
+        player.save(update_fields=["rating"])
+        r.history_entries.all().delete()
+        r.delete()
+
+    tournament.delete()

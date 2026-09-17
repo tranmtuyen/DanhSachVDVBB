@@ -262,6 +262,71 @@ function Pagination({ page, totalPages, onChange }) {
     </div>
   );
 }
+function NameWithNickname({ name, nickname }) {
+  return (
+    <>
+      {name}
+      {nickname && <span style={{ color: C.muted, fontWeight: 500 }}> ({nickname})</span>}
+    </>
+  );
+}
+
+function PlayerCombobox({ players, value, onChange, placeholder, excludeIds }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const selected = players.find((p) => p.id === Number(value));
+
+  const available = useMemo(
+    () => (excludeIds && excludeIds.length ? players.filter((p) => !excludeIds.includes(p.id)) : players),
+    [players, excludeIds]
+  );
+
+  const filtered = useMemo(() => {
+    const q = normalizeVN(query.trim());
+    if (!q) return available;
+    return available.filter((p) => normalizeVN(`${p.name} ${p.nickname || ""}`).includes(q));
+  }, [available, query]);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        style={inputStyle}
+        value={open ? query : selected ? `${selected.name}${selected.nickname ? ` (${selected.nickname})` : ""}` : ""}
+        placeholder={placeholder || "Gõ để tìm theo tên hoặc biệt danh…"}
+        onFocus={() => { setQuery(""); setOpen(true); }}
+        onChange={(e) => setQuery(e.target.value)}
+        onBlur={() => setTimeout(() => setOpen(false), 120)}
+      />
+      {open && (
+        <div
+          style={{
+            position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: C.surface,
+            border: `1px solid ${C.line}`, borderRadius: 10, maxHeight: 230, overflowY: "auto", zIndex: 45,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+          }}
+        >
+          {filtered.length === 0 ? (
+            <div style={{ padding: "10px 12px", fontSize: 13, color: C.muted }}>Không tìm thấy VĐV nào khớp.</div>
+          ) : (
+            filtered.map((p) => (
+              <div
+                key={p.id}
+                onMouseDown={(e) => { e.preventDefault(); onChange(String(p.id)); setQuery(""); setOpen(false); }}
+                style={{
+                  padding: "9px 12px", fontSize: 13.5, cursor: "pointer",
+                  background: p.id === Number(value) ? C.bg : "transparent",
+                }}
+              >
+                <NameWithNickname name={p.name} nickname={p.nickname} />
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EmptyState({ text }) {
   return (
     <div style={{ border: `1.5px dashed ${C.line}`, borderRadius: 14, padding: "36px 20px", textAlign: "center", color: C.muted, fontSize: 14 }}>
@@ -420,13 +485,19 @@ export default function App() {
     await refreshAll();
   }
 
-  async function addMatch({ tournamentId, mode, playerAId, playerBId, playerA2Id, playerB2Id, setsA, setsB, friendlyDate }) {
+  async function deleteTournament(tid) {
+    await apiDelete(`/tournaments/${tid}/`);
+    await refreshAll();
+  }
+
+  async function addMatch({ tournamentId, mode, status, playerAId, playerBId, playerA2Id, playerB2Id, setsA, setsB, friendlyDate }) {
     await apiPostJSON("/matches/", {
       tournament: tournamentId || null,
       mode: mode || "don",
+      status: status || "completed",
       player_a: playerAId, player_b: playerBId,
       player_a2: playerA2Id || null, player_b2: playerB2Id || null,
-      sets_a: setsA, sets_b: setsB,
+      sets_a: setsA ?? null, sets_b: setsB ?? null,
       ...(friendlyDate ? { date: friendlyDate } : {}),
     });
     await refreshAll();
@@ -650,7 +721,8 @@ export default function App() {
           {tab === "tournaments" && (
             <TournamentsTab
               data={data} canCreate={canManageTournaments} canEnterResults={canEnterResults} canEnterMatches={canEnterMatches} canManageMatches={canManageMatches}
-              onAddTournament={addTournament} onCloseTournament={closeTournament} onAddResult={addResult}
+              canDeleteTournament={role === "admin"}
+              onAddTournament={addTournament} onCloseTournament={closeTournament} onDeleteTournament={deleteTournament} onAddResult={addResult}
               onEditMatch={editMatch} onDeleteMatch={deleteMatch}
             />
           )}
@@ -733,9 +805,11 @@ function Leaderboard({ players, matches, history, onSelect }) {
                       <div className="flex items-center gap-3">
                         <Avatar player={p} size={34} />
                         <div>
-                          <div style={{ fontWeight: 700, color: C.nameColor }}>{p.name}</div>
+                          <div style={{ fontWeight: 700, color: C.nameColor }}>
+                            <NameWithNickname name={p.name} nickname={p.nickname} />
+                          </div>
                           <div style={{ fontSize: 11.5, color: HANG_COLOR[p.hang], fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>
-                            Hạng {p.hang}{p.nickname ? ` · ${p.nickname}` : ""}
+                            Hạng {p.hang}
                           </div>
                         </div>
                       </div>
@@ -884,7 +958,7 @@ function PlayersTab({ players, canManage, onAdd, onSelect }) {
               <div className="flex items-center gap-3">
                 <Avatar player={p} size={38} />
                 <div>
-                  <div style={{ fontWeight: 600 }}>{p.name}{p.nickname ? ` · ${p.nickname}` : ""}</div>
+                  <div style={{ fontWeight: 600 }}><NameWithNickname name={p.name} nickname={p.nickname} /></div>
                   <div style={{ fontSize: 12.5, color: C.muted }}>Tham gia {fmtDate(p.join_date)}</div>
                 </div>
               </div>
@@ -1113,7 +1187,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
 
   // Hiển thị theo góc nhìn 1 VĐV cụ thể (dùng trong "Lịch sử điểm" của VĐV đó)
   let perspective = null;
-  if (perspectivePlayerId) {
+  if (perspectivePlayerId && m.status !== "scheduled") {
     const isASide = m.player_a === perspectivePlayerId || m.player_a2 === perspectivePlayerId;
     const selfWon = (isASide && m.winner_side === "A") || (!isASide && m.winner_side === "B");
     const scoreText = isASide ? `${m.sets_a}–${m.sets_b}` : `${m.sets_b}–${m.sets_a}`;
@@ -1126,14 +1200,20 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
   async function save(e) {
     e.preventDefault();
     setError("");
-    if (Number(setsA) === Number(setsB)) return;
+    const aBlank = setsA === "" || setsA === null || setsA === undefined;
+    const bBlank = setsB === "" || setsB === null || setsB === undefined;
+    if (aBlank !== bBlank) { setError("Cần nhập đủ tỷ số cả 2 bên, hoặc để trống cả 2 nếu chưa có kết quả."); return; }
+    const scoreProvided = !aBlank;
+    if (scoreProvided && Number(setsA) === Number(setsB)) return;
+    const finalSetsA = scoreProvided ? Number(setsA) : null;
+    const finalSetsB = scoreProvided ? Number(setsB) : null;
     try {
       if (isDoubles) {
         if (!playerAId || !playerA2Id || !playerBId || !playerB2Id) return;
-        await onEditMatch(m.id, { playerAId: Number(playerAId), playerA2Id: Number(playerA2Id), playerBId: Number(playerBId), playerB2Id: Number(playerB2Id), setsA: Number(setsA), setsB: Number(setsB), date });
+        await onEditMatch(m.id, { playerAId: Number(playerAId), playerA2Id: Number(playerA2Id), playerBId: Number(playerBId), playerB2Id: Number(playerB2Id), setsA: finalSetsA, setsB: finalSetsB, date });
       } else {
         if (!playerAId || !playerBId || playerAId === playerBId) return;
-        await onEditMatch(m.id, { playerAId: Number(playerAId), playerBId: Number(playerBId), setsA: Number(setsA), setsB: Number(setsB), date });
+        await onEditMatch(m.id, { playerAId: Number(playerAId), playerBId: Number(playerBId), setsA: finalSetsA, setsB: finalSetsB, date });
       }
       setEditing(false);
     } catch (err) {
@@ -1173,9 +1253,10 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
           </div>
         )}
         <div className="grid grid-cols-2 gap-2">
-          <input type="number" min="0" style={inputStyle} value={setsA} onChange={(e) => setSetsA(e.target.value)} />
-          <input type="number" min="0" style={inputStyle} value={setsB} onChange={(e) => setSetsB(e.target.value)} />
+          <input type="number" min="0" placeholder="Chưa có" style={inputStyle} value={setsA ?? ""} onChange={(e) => setSetsA(e.target.value)} />
+          <input type="number" min="0" placeholder="Chưa có" style={inputStyle} value={setsB ?? ""} onChange={(e) => setSetsB(e.target.value)} />
         </div>
+        <div style={{ fontSize: 11.5, color: C.muted }}>Để trống cả 2 ô nếu trận vẫn đang "Sắp diễn ra", chưa có kết quả.</div>
         {showDate && <input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} />}
         {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
         <div className="flex gap-2">
@@ -1191,7 +1272,14 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
       <div>
         <div className="flex items-center gap-2">
           {isDoubles && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px" }}>ĐÔI</span>}
-          {perspective ? (
+          {m.status === "scheduled" ? (
+            <>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 8px", borderRadius: 999, background: C.gold + "22", color: C.gold }}>
+                SẮP DIỄN RA
+              </span>
+              <span>{labelA} vs {labelB}</span>
+            </>
+          ) : perspective ? (
             <>
               <span
                 style={{
@@ -1213,7 +1301,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
       </div>
       <div className="flex items-center gap-3">
         <span className="tabular" style={{ color: C.muted }}>
-          {isDoubles ? "Không tính điểm" : <>{m.delta_a >= 0 ? "+" : ""}{m.delta_a} / {m.delta_b >= 0 ? "+" : ""}{m.delta_b}</>}
+          {m.status === "scheduled" ? "" : isDoubles ? "Không tính điểm" : <>{m.delta_a >= 0 ? "+" : ""}{m.delta_a} / {m.delta_b >= 0 ? "+" : ""}{m.delta_b}</>}
         </span>
         {canManage && (
           <div className="flex gap-1">
@@ -1227,7 +1315,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
 }
 
 /* ---------- Tournaments ---------- */
-function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, canManageMatches, onAddTournament, onCloseTournament, onAddResult, onEditMatch, onDeleteMatch }) {
+function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onAddTournament, onCloseTournament, onDeleteTournament, onAddResult, onEditMatch, onDeleteMatch }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("khong_chap");
@@ -1300,7 +1388,8 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, can
               key={t.id} tournament={t} data={data}
               expanded={expanded === t.id} onToggle={() => setExpanded(expanded === t.id ? null : t.id)}
               canEnterResults={canEnterResults} canEnterMatches={canEnterMatches} canManageMatches={canManageMatches}
-              onCloseTournament={onCloseTournament} onAddResult={onAddResult}
+              canDeleteTournament={canDeleteTournament}
+              onCloseTournament={onCloseTournament} onDeleteTournament={onDeleteTournament} onAddResult={onAddResult}
               onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
             />
           ))}
@@ -1310,7 +1399,7 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, can
   );
 }
 
-function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, canManageMatches, onCloseTournament, onAddResult, onEditMatch, onDeleteMatch }) {
+function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onCloseTournament, onDeleteTournament, onAddResult, onEditMatch, onDeleteMatch }) {
   const matches = data.matches.filter((m) => m.tournament === t.id);
   const results = data.results.filter((r) => r.tournament === t.id);
   const [placement, setPlacement] = useState("vo_dich");
@@ -1372,10 +1461,7 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
           {canEnterResults && (
             <form onSubmit={submitResult} className="flex items-end gap-2" style={{ flexWrap: "wrap" }}>
               <Field label="Vận động viên">
-                <select style={inputStyle} value={playerId} onChange={(e) => setPlayerId(e.target.value)} required>
-                  <option value="">— chọn —</option>
-                  {data.players.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <PlayerCombobox players={data.players} value={playerId} onChange={setPlayerId} />
               </Field>
               <Field label="Thành tích">
                 <select style={inputStyle} value={placement} onChange={(e) => setPlacement(e.target.value)}>
@@ -1389,9 +1475,24 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
             </form>
           )}
 
-          {canEnterResults && t.status !== "da_ket_thuc" && (
-            <button style={{ ...btnGhost, alignSelf: "flex-start" }} onClick={() => onCloseTournament(t.id)}>Đóng giải đấu</button>
-          )}
+          <div className="flex gap-2">
+            {canEnterResults && t.status !== "da_ket_thuc" && (
+              <button style={btnGhost} onClick={() => onCloseTournament(t.id)}>Đóng giải đấu</button>
+            )}
+            {canDeleteTournament && (
+              <button
+                style={{ ...btnGhost, color: C.bad, borderColor: C.bad + "55" }}
+                onClick={async () => {
+                  if (!window.confirm(
+                    `Xóa vĩnh viễn giải "${t.name}"?\n\nToàn bộ trận đấu và điểm thưởng thành tích của giải này sẽ bị xóa, điểm của các VĐV liên quan sẽ được hoàn tác về đúng trước khi giải diễn ra. Hành động này không thể hoàn tác.`
+                  )) return;
+                  await onDeleteTournament(t.id);
+                }}
+              >
+                Xóa giải đấu
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1403,6 +1504,7 @@ function EnterMatchTab({ data, onAddMatch }) {
   const openTournaments = data.tournaments.filter((t) => t.status !== "da_ket_thuc");
   const [kind, setKind] = useState("giao_huu");
   const [mode, setMode] = useState("don");
+  const [matchStatus, setMatchStatus] = useState("completed");
   const [tournamentId, setTournamentId] = useState("");
   const [friendlyDate, setFriendlyDate] = useState(todayStr());
   const [playerAId, setPlayerAId] = useState("");
@@ -1414,6 +1516,7 @@ function EnterMatchTab({ data, onAddMatch }) {
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
 
+  const isScheduled = matchStatus === "scheduled";
   const t = kind === "giai" ? data.tournaments.find((x) => x.id === Number(tournamentId)) : null;
   const effectiveType = kind === "giai" ? t?.type : "giao_huu";
   const pA = data.players.find((p) => p.id === Number(playerAId));
@@ -1422,17 +1525,18 @@ function EnterMatchTab({ data, onAddMatch }) {
   const pB2 = data.players.find((p) => p.id === Number(playerB2Id));
 
   const preview = useMemo(() => {
+    if (isScheduled) return null;
     if (!effectiveType || Number(setsA) === Number(setsB)) return null;
     if (mode === "doi") return null;
     if (!pA || !pB) return null;
     const winner = Number(setsA) > Number(setsB) ? "A" : "B";
     return computeMatchDeltaPreview(pA.rating, pB.rating, winner, effectiveType);
-  }, [effectiveType, mode, pA, pB, setsA, setsB]);
+  }, [isScheduled, effectiveType, mode, pA, pB, setsA, setsB]);
 
   async function submit(e) {
     e.preventDefault();
     setError("");
-    if (Number(setsA) === Number(setsB)) return;
+    if (!isScheduled && Number(setsA) === Number(setsB)) return;
     if (kind === "giai" && !tournamentId) return;
     try {
       if (mode === "doi") {
@@ -1442,21 +1546,27 @@ function EnterMatchTab({ data, onAddMatch }) {
           tournamentId: kind === "giai" ? Number(tournamentId) : null,
           friendlyDate: kind === "giao_huu" ? friendlyDate : undefined,
           mode: "doi",
+          status: matchStatus,
           playerAId: Number(playerAId), playerA2Id: Number(playerA2Id),
           playerBId: Number(playerBId), playerB2Id: Number(playerB2Id),
-          setsA: Number(setsA), setsB: Number(setsB),
+          setsA: isScheduled ? null : Number(setsA), setsB: isScheduled ? null : Number(setsB),
         });
-        setMsg(`Đã lưu: ${pA.name} & ${pA2.name} ${setsA}–${setsB} ${pB.name} & ${pB2.name}`);
+        setMsg(isScheduled
+          ? `Đã tạo trận sắp diễn ra: ${pA.name} & ${pA2.name} vs ${pB.name} & ${pB2.name}`
+          : `Đã lưu: ${pA.name} & ${pA2.name} ${setsA}–${setsB} ${pB.name} & ${pB2.name}`);
         setPlayerAId(""); setPlayerA2Id(""); setPlayerBId(""); setPlayerB2Id("");
       } else {
         if (!playerAId || !playerBId || playerAId === playerBId) return;
         await onAddMatch({
           tournamentId: kind === "giai" ? Number(tournamentId) : null,
           friendlyDate: kind === "giao_huu" ? friendlyDate : undefined,
+          status: matchStatus,
           playerAId: Number(playerAId), playerBId: Number(playerBId),
-          setsA: Number(setsA), setsB: Number(setsB),
+          setsA: isScheduled ? null : Number(setsA), setsB: isScheduled ? null : Number(setsB),
         });
-        setMsg(`Đã lưu kết quả: ${pA.name} ${setsA}–${setsB} ${pB.name}`);
+        setMsg(isScheduled
+          ? `Đã tạo trận sắp diễn ra: ${pA.name} vs ${pB.name}`
+          : `Đã lưu kết quả: ${pA.name} ${setsA}–${setsB} ${pB.name}`);
         setPlayerAId(""); setPlayerBId("");
       }
       setSetsA(3); setSetsB(0);
@@ -1485,6 +1595,19 @@ function EnterMatchTab({ data, onAddMatch }) {
         </Field>
       </div>
 
+      <Field label="Trạng thái trận đấu">
+        <div className="flex gap-4" style={{ fontSize: 14 }}>
+          <label className="flex items-center gap-1.5" style={{ cursor: "pointer" }}>
+            <input type="radio" name="matchStatus" checked={matchStatus === "completed"} onChange={() => setMatchStatus("completed")} />
+            Kết thúc
+          </label>
+          <label className="flex items-center gap-1.5" style={{ cursor: "pointer" }}>
+            <input type="radio" name="matchStatus" checked={matchStatus === "scheduled"} onChange={() => setMatchStatus("scheduled")} />
+            Sắp diễn ra
+          </label>
+        </div>
+      </Field>
+
       {kind === "giai" ? (
         openTournaments.length === 0 ? (
           <div style={{ fontSize: 13.5, color: C.muted }}>Chưa có giải đấu nào đang diễn ra — tạo giải ở tab “Giải đấu”, hoặc chọn “Giao hữu” để nhập ngay không cần giải.</div>
@@ -1503,60 +1626,58 @@ function EnterMatchTab({ data, onAddMatch }) {
       <div className="grid grid-cols-2 gap-4">
         <div className="flex flex-col gap-2">
           <Field label={mode === "doi" ? "Đội A — VĐV 1" : "VĐV A"}>
-            <select style={inputStyle} value={playerAId} onChange={(e) => setPlayerAId(e.target.value)} required>
-              <option value="">— chọn —</option>
-              {data.players.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.rating})</option>)}
-            </select>
+            <PlayerCombobox players={data.players} value={playerAId} onChange={setPlayerAId} />
           </Field>
           {mode === "doi" && (
             <Field label="Đội A — VĐV 2">
-              <select style={inputStyle} value={playerA2Id} onChange={(e) => setPlayerA2Id(e.target.value)} required>
-                <option value="">— chọn —</option>
-                {data.players.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.rating})</option>)}
-              </select>
+              <PlayerCombobox players={data.players} value={playerA2Id} onChange={setPlayerA2Id} />
             </Field>
           )}
         </div>
         <div className="flex flex-col gap-2">
           <Field label={mode === "doi" ? "Đội B — VĐV 1" : "VĐV B"}>
-            <select style={inputStyle} value={playerBId} onChange={(e) => setPlayerBId(e.target.value)} required>
-              <option value="">— chọn —</option>
-              {data.players.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.rating})</option>)}
-            </select>
+            <PlayerCombobox players={data.players} value={playerBId} onChange={setPlayerBId} />
           </Field>
           {mode === "doi" && (
             <Field label="Đội B — VĐV 2">
-              <select style={inputStyle} value={playerB2Id} onChange={(e) => setPlayerB2Id(e.target.value)} required>
-                <option value="">— chọn —</option>
-                {data.players.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.rating})</option>)}
-              </select>
+              <PlayerCombobox players={data.players} value={playerB2Id} onChange={setPlayerB2Id} />
             </Field>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <Field label={mode === "doi" ? "Số ván thắng — Đội A" : "Số ván thắng — VĐV A"}><input type="number" min="0" style={inputStyle} value={setsA} onChange={(e) => setSetsA(e.target.value)} /></Field>
-        <Field label={mode === "doi" ? "Số ván thắng — Đội B" : "Số ván thắng — VĐV B"}><input type="number" min="0" style={inputStyle} value={setsB} onChange={(e) => setSetsB(e.target.value)} /></Field>
-      </div>
-
-      {mode === "doi" ? (
+      {isScheduled ? (
         <div style={{ fontSize: 13.5, color: C.muted, background: C.bg, borderRadius: 8, padding: "10px 12px" }}>
-          Trận đánh đôi chỉ ghi nhận kết quả (tỷ số, thắng/thua) — không cộng/trừ điểm rating cho các VĐV.
+          Trận "Sắp diễn ra" chưa cần nhập tỷ số — sẽ hiện trong danh sách Giải đấu/Giao hữu, chưa tính điểm. Vào phần Sửa trận để nhập tỷ số khi trận đấu kết thúc.
         </div>
       ) : (
-        preview && (
+        <div className="grid grid-cols-2 gap-4">
+          <Field label={mode === "doi" ? "Số ván thắng — Đội A" : "Số ván thắng — VĐV A"}><input type="number" min="0" style={inputStyle} value={setsA} onChange={(e) => setSetsA(e.target.value)} /></Field>
+          <Field label={mode === "doi" ? "Số ván thắng — Đội B" : "Số ván thắng — VĐV B"}><input type="number" min="0" style={inputStyle} value={setsB} onChange={(e) => setSetsB(e.target.value)} /></Field>
+        </div>
+      )}
+
+      {!isScheduled && (
+        mode === "doi" ? (
           <div style={{ fontSize: 13.5, color: C.muted, background: C.bg, borderRadius: 8, padding: "10px 12px" }}>
-            Dự kiến: <strong style={{ color: C.ink }}>{pA?.name}</strong> {preview.deltaA >= 0 ? "+" : ""}{preview.deltaA} điểm,{" "}
-            <strong style={{ color: C.ink }}>{pB?.name}</strong> {preview.deltaB >= 0 ? "+" : ""}{preview.deltaB} điểm
+            Trận đánh đôi chỉ ghi nhận kết quả (tỷ số, thắng/thua) — không cộng/trừ điểm rating cho các VĐV.
           </div>
+        ) : (
+          preview && (
+            <div style={{ fontSize: 13.5, color: C.muted, background: C.bg, borderRadius: 8, padding: "10px 12px" }}>
+              Dự kiến: <strong style={{ color: C.ink }}>{pA?.name}</strong> {preview.deltaA >= 0 ? "+" : ""}{preview.deltaA} điểm,{" "}
+              <strong style={{ color: C.ink }}>{pB?.name}</strong> {preview.deltaB >= 0 ? "+" : ""}{preview.deltaB} điểm
+            </div>
+          )
         )
       )}
 
       {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
 
       <div className="flex items-center gap-3">
-        <button type="submit" style={btnPrimary} disabled={kind === "giai" && openTournaments.length === 0}>Lưu kết quả trận đấu</button>
+        <button type="submit" style={btnPrimary} disabled={kind === "giai" && openTournaments.length === 0}>
+          {isScheduled ? "Tạo trận sắp diễn ra" : "Lưu kết quả trận đấu"}
+        </button>
         {msg && <span style={{ fontSize: 13, color: "#1E8E52", fontWeight: 600 }}>{msg}</span>}
       </div>
     </form>

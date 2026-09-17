@@ -94,6 +94,17 @@ class TournamentViewSet(viewsets.ModelViewSet):
     serializer_class = TournamentSerializer
     permission_classes = [IsAdminOrManager]
 
+    def get_permissions(self):
+        # Xóa giải đấu: chỉ Quản trị viên (vì sẽ hoàn tác điểm hàng loạt). Còn lại giữ nguyên như cũ.
+        if self.action == "destroy":
+            return [IsAdminOnly()]
+        return [IsAdminOrManager()]
+
+    def destroy(self, request, *args, **kwargs):
+        tournament = self.get_object()
+        services.delete_tournament(tournament)
+        return Response(status=204)
+
 
 class MatchViewSet(viewsets.ModelViewSet):
     queryset = Match.objects.all().order_by("-date")
@@ -116,12 +127,13 @@ class MatchViewSet(viewsets.ModelViewSet):
             match = services.record_match(
                 tournament=d.get("tournament"),
                 mode=d.get("mode", "don"),
+                status=d.get("status", "completed"),
                 player_a=d["player_a"],
                 player_b=d["player_b"],
                 player_a2=d.get("player_a2"),
                 player_b2=d.get("player_b2"),
-                sets_a=d["sets_a"],
-                sets_b=d["sets_b"],
+                sets_a=d.get("sets_a"),
+                sets_b=d.get("sets_b"),
                 date=d.get("date"),
             )
         except ValueError as e:
@@ -138,7 +150,7 @@ class MatchViewSet(viewsets.ModelViewSet):
                 match,
                 player_a=d["player_a"], player_b=d["player_b"],
                 player_a2=d.get("player_a2"), player_b2=d.get("player_b2"),
-                sets_a=d["sets_a"], sets_b=d["sets_b"], date=d.get("date"),
+                sets_a=d.get("sets_a"), sets_b=d.get("sets_b"), date=d.get("date"),
             )
         except ValueError as e:
             raise ValidationError(str(e))
