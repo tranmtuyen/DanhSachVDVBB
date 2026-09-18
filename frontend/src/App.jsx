@@ -344,10 +344,10 @@ function MatchTeamsGrid({ leftP1, leftP2, rightP1, rightP2, middle }) {
   const hasSecondRow = !!(leftP2 || rightP2);
   const nameStyle = { textAlign: "left", color: C.nameColor, fontWeight: 700 };
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,1fr) 78px minmax(120px,1fr)", width: "100%", alignItems: "center", rowGap: 1, columnGap: 10 }}>
-      <div style={nameStyle}>{leftP1?.name}</div>
+    <div className="tt-teams-grid" style={{ display: "grid", gridTemplateColumns: "minmax(120px,1fr) 78px minmax(120px,1fr)", width: "100%", alignItems: "center", rowGap: 1, columnGap: 10 }}>
+      <div className="tt-tg-1" style={nameStyle}>{leftP1?.name}</div>
       <div
-        className="tabular"
+        className="tt-tg-mid tabular"
         style={{
           gridRow: hasSecondRow ? "span 2" : "auto", alignSelf: "center",
           textAlign: "center", fontSize: 13, fontWeight: 800, color: C.ink, whiteSpace: "nowrap",
@@ -355,11 +355,11 @@ function MatchTeamsGrid({ leftP1, leftP2, rightP1, rightP2, middle }) {
       >
         {middle}
       </div>
-      <div style={nameStyle}>{rightP1?.name}</div>
+      <div className="tt-tg-2" style={nameStyle}>{rightP1?.name}</div>
       {hasSecondRow && (
         <>
-          <div style={nameStyle}>{leftP2?.name}</div>
-          <div style={nameStyle}>{rightP2?.name}</div>
+          <div className="tt-tg-3" style={nameStyle}>{leftP2?.name}</div>
+          <div className="tt-tg-4" style={nameStyle}>{rightP2?.name}</div>
         </>
       )}
     </div>
@@ -615,6 +615,17 @@ export default function App() {
         .tt-combobox-scroll::-webkit-scrollbar-track { background: transparent; }
         .tt-combobox-scroll::-webkit-scrollbar-thumb { background: ${C.line}; border-radius: 8px; }
         .tt-combobox-scroll { scrollbar-width: thin; scrollbar-color: ${C.line} transparent; }
+        @media (max-width: 480px) {
+          .tt-match-row { flex-direction: column; align-items: stretch !important; gap: 6px !important; }
+          .tt-match-right { width: 100%; justify-content: space-between !important; }
+          .tt-teams-grid { grid-template-columns: 1fr !important; row-gap: 3px !important; }
+          .tt-teams-grid > div { grid-column: 1 !important; grid-row: auto !important; text-align: center !important; }
+          .tt-tg-1 { order: 1; }
+          .tt-tg-3 { order: 2; }
+          .tt-tg-mid { order: 3; margin: 3px 0; }
+          .tt-tg-2 { order: 4; }
+          .tt-tg-4 { order: 5; }
+        }
         .tt-sidebar { width: 232px; flex-shrink: 0; transition: width 160ms ease; }
         .tt-sidebar-label { display: inline; }
         .tt-mobile-toggle { display: none; }
@@ -1316,7 +1327,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
   }
 
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: `1px solid ${C.line}`, gap: 12 }}>
+    <div className="tt-match-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: `1px solid ${C.line}`, gap: 12 }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="flex items-center gap-2" style={{ width: "100%" }}>
           <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px" }}>
@@ -1353,7 +1364,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
         {showDate && <div style={{ fontSize: 12, color: C.muted }}>{fmtDate(m.date)}</div>}
         {perspective && <div style={{ fontSize: 11.5, color: C.muted, opacity: 0.75, marginTop: 1 }}>{perspective.contextLabel}</div>}
       </div>
-      <div className="flex items-center gap-3">
+      <div className="tt-match-right flex items-center gap-3">
         <span className="tabular" style={{ color: C.muted }}>
           {m.status === "scheduled" ? "" : isDoubles ? "Không tính điểm" : <>{m.delta_a >= 0 ? "+" : ""}{m.delta_a} / {m.delta_b >= 0 ? "+" : ""}{m.delta_b}</>}
         </span>
