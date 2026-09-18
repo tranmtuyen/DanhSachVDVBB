@@ -340,6 +340,23 @@ function PlayerCombobox({ players, value, onChange, placeholder, excludeIds }) {
   );
 }
 
+function MatchTeamsGrid({ leftP1, leftP2, rightP1, rightP2, middle }) {
+  return (
+    <div style={{ display: "inline-grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", rowGap: 1, columnGap: 14 }}>
+      <div style={{ textAlign: "right", fontWeight: 700 }}>{leftP1?.name}</div>
+      <div className="tabular" style={{ textAlign: "center", fontSize: 12.5, fontWeight: 700, color: C.muted, whiteSpace: "nowrap" }}>{middle}</div>
+      <div style={{ textAlign: "left", fontWeight: 700 }}>{rightP1?.name}</div>
+      {leftP2 && (
+        <>
+          <div style={{ textAlign: "right", color: C.muted, fontSize: 12.5 }}>{leftP2?.name}</div>
+          <div />
+          <div style={{ textAlign: "left", color: C.muted, fontSize: 12.5 }}>{rightP2?.name}</div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function EmptyState({ text }) {
   return (
     <div style={{ border: `1.5px dashed ${C.line}`, borderRadius: 14, padding: "36px 20px", textAlign: "center", color: C.muted, fontSize: 14 }}>
@@ -626,7 +643,8 @@ export default function App() {
         <div className="flex items-center gap-2.5" style={{ padding: "12px 18px 18px" }}>
           <img src="/logo-sao-mai.png" alt="CLB Sao Mai" style={{ width: 40, height: 40, objectFit: "contain", flexShrink: 0 }} />
           <div className="tt-sidebar-brand-text" style={{ lineHeight: 1.2 }}>
-            <div style={{ color: "#fff", fontWeight: 700, fontSize: 12, fontFamily: "'Nunito', 'Segoe UI', Roboto, sans-serif" }}> CLB bóng bàn Sao Mai - An Giang </div>          
+            <div style={{ color: "#fff", fontWeight: 800, fontSize: 14, fontFamily: FONT_DISPLAY }}>CLB SAO MAI</div>
+            <div style={{ color: "#9BA89E", fontSize: 11 }}>An Giang</div>
           </div>
         </div>
 
@@ -1210,8 +1228,13 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
     const contextLabel = m.tournament
       ? (data.tournaments?.find((t) => t.id === m.tournament)?.name || "Giải đấu")
       : "Giao hữu";
-    perspective = { selfLabel: isASide ? labelA : labelB, oppLabel: isASide ? labelB : labelA, selfWon, scoreText, contextLabel };
+    perspective = { selfLabel: isASide ? labelA : labelB, oppLabel: isASide ? labelB : labelA, selfWon, scoreText, contextLabel, isASide };
   }
+
+  // Xác định bên trái/phải hiển thị: theo góc nhìn (self bên trái) nếu có, mặc định A bên trái — dùng chung cho đơn & đôi
+  const asideLeft = perspective ? perspective.isASide : true;
+  const leftPlayers = isDoubles ? (asideLeft ? [pA, pA2] : [pB, pB2]) : [asideLeft ? pA : pB];
+  const rightPlayers = isDoubles ? (asideLeft ? [pB, pB2] : [pA, pA2]) : [asideLeft ? pB : pA];
 
   async function save(e) {
     e.preventDefault();
@@ -1287,29 +1310,35 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: `1px solid ${C.line}` }}>
       <div>
         <div className="flex items-center gap-2">
-          {isDoubles && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px" }}>ĐÔI</span>}
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px" }}>
+            {isDoubles ? "ĐÔI" : "ĐƠN"}
+          </span>
           {m.status === "scheduled" ? (
-            <>
-              <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 8px", borderRadius: 999, background: C.gold + "22", color: C.gold }}>
-                SẮP DIỄN RA
-              </span>
-              <span>{labelA} vs {labelB}</span>
-            </>
+            <MatchTeamsGrid
+              leftP1={leftPlayers[0]} leftP2={leftPlayers[1]} rightP1={rightPlayers[0]} rightP2={rightPlayers[1]}
+              middle="(sắp diễn ra)"
+            />
           ) : perspective ? (
             <>
               <span
                 style={{
-                  fontSize: 11, fontWeight: 700, padding: "1px 8px", borderRadius: 999,
+                  fontSize: 11, fontWeight: 700, padding: "1px 8px", borderRadius: 999, marginRight: 2,
                   background: perspective.selfWon ? C.pillUpBg : C.pillDownBg,
                   color: perspective.selfWon ? C.pillUpText : C.pillDownText,
                 }}
               >
-                {perspective.selfWon ? "Thắng" : "Thua"} {perspective.scoreText}
+                {perspective.selfWon ? "Thắng" : "Thua"}
               </span>
-              <span>{perspective.selfLabel} vs {perspective.oppLabel}</span>
+              <MatchTeamsGrid
+                leftP1={leftPlayers[0]} leftP2={leftPlayers[1]} rightP1={rightPlayers[0]} rightP2={rightPlayers[1]}
+                middle={perspective.scoreText}
+              />
             </>
           ) : (
-            <span>{labelA} {m.sets_a}–{m.sets_b} {labelB}</span>
+            <MatchTeamsGrid
+              leftP1={leftPlayers[0]} leftP2={leftPlayers[1]} rightP1={rightPlayers[0]} rightP2={rightPlayers[1]}
+              middle={`${m.sets_a}–${m.sets_b}`}
+            />
           )}
         </div>
         {showDate && <div style={{ fontSize: 12, color: C.muted }}>{fmtDate(m.date)}</div>}
