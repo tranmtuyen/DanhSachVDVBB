@@ -601,7 +601,7 @@ export default function App() {
   return (
     <div style={{ background: C.bg, minHeight: "100vh", fontFamily: FONT_BODY, color: C.ink, display: "flex" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600;1,700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600;1,700&family=Nunito:wght@700;800&display=swap');
         * { box-sizing: border-box; }
         table { border-collapse: collapse; width: 100%; }
         .tabular { font-variant-numeric: tabular-nums; font-family: ${FONT_DISPLAY}; }
@@ -642,6 +642,7 @@ export default function App() {
           .tt-sidebar.tt-sidebar-open .tt-sidebar-brand-text,
           .tt-sidebar.tt-sidebar-open .tt-sidebar-user-info { display: inline !important; }
           .tt-sidebar.tt-sidebar-open .tt-nav-item { justify-content: flex-start !important; }
+          .tt-sidebar.tt-sidebar-open .tt-sidebar-nav { flex: 0 1 auto !important; }
         }
       `}</style>
 
@@ -662,13 +663,13 @@ export default function App() {
 
         <div className="flex items-center gap-2.5" style={{ padding: "12px 18px 18px" }}>
           <img src="/logo-sao-mai.png" alt="CLB Sao Mai" style={{ width: 40, height: 40, objectFit: "contain", flexShrink: 0 }} />
-          <div className="tt-sidebar-brand-text" style={{ lineHeight: 1.2 }}>
-            <div style={{ color: "#fff", fontWeight: 800, fontSize: 14, fontFamily: FONT_DISPLAY }}>CLB SAO MAI</div>
-            <div style={{ color: "#9BA89E", fontSize: 11 }}>An Giang</div>
+          <div className="tt-sidebar-brand-text" style={{ lineHeight: 1.25 }}>
+            <div style={{ color: "#fff", fontWeight: 800, fontSize: 12, fontFamily: "'Nunito', sans-serif" }}>CLB BÓNG BÀN SAO MAI</div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 12, fontFamily: "'Nunito', sans-serif" }}>AN GIANG</div>
           </div>
         </div>
 
-        <div className="flex flex-col gap-1" style={{ padding: "8px 12px", flex: 1 }}>
+        <div className="tt-sidebar-nav flex flex-col gap-1" style={{ padding: "8px 12px", flex: 1 }}>
           {visibleTabs.map((t) => (
             <button
               key={t.id} onClick={() => { setTab(t.id); setMobileMenuOpen(false); }}
