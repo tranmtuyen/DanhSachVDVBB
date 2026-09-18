@@ -62,10 +62,17 @@ def me_view(request):
 
 # ================= Quản lý User (chỉ Quản trị viên) =================
 
+class IsAdminStrict(permissions.BasePermission):
+    """Không cho phép GET công khai như IsAdminOnly — chỉ Quản trị viên mới được xem/sửa User."""
+
+    def has_permission(self, request, view):
+        return services.get_role(request.user) == "admin"
+
+
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by("username")
     serializer_class = UserSerializer
-    permission_classes = [IsAdminOnly]
+    permission_classes = [IsAdminStrict]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
 
@@ -73,6 +80,22 @@ class PlayerViewSet(viewsets.ModelViewSet):
     queryset = Player.objects.all().order_by("-rating")
     serializer_class = PlayerSerializer
     permission_classes = [IsAdminOnly]
+
+    def update(self, request, *args, **kwargs):
+        # Không cho sửa "rating" qua PATCH thường — mọi thay đổi điểm phải qua adjust_rating() để có audit log.
+        data = request.data.copy()
+        if hasattr(data, "pop"):
+            data.pop("rating", None)
+        partial = kwargs.get("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         player = self.get_object()

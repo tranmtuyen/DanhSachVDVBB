@@ -1097,7 +1097,7 @@ function PlayerDetail({ player, history, matches, tournaments, allPlayers, canMa
                 <ScorePill value={player.rating} style={{ fontSize: 18, padding: "6px 16px" }} />
               </div>
             </div>
-            {(player.birth_year || player.id_number) && (
+            {canManage && (player.birth_year || player.id_number) && (
               <div className="flex gap-5" style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}`, fontSize: 13.5 }}>
                 {player.birth_year && <div><span style={{ color: C.muted }}>Năm sinh: </span><span style={{ fontWeight: 600 }}>{player.birth_year}</span></div>}
                 {player.id_number && <div><span style={{ color: C.muted }}>CCCD: </span><span style={{ fontWeight: 600 }}>{player.id_number}</span></div>}

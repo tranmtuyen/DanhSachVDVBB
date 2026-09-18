@@ -1,4 +1,6 @@
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from . import services
@@ -16,6 +18,14 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_role(self, obj):
         return services.get_role(obj)
+
+    def validate_password(self, value):
+        if value:
+            try:
+                validate_password(value)
+            except DjangoValidationError as e:
+                raise serializers.ValidationError(list(e.messages))
+        return value
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)
@@ -56,6 +66,15 @@ class PlayerSerializer(serializers.ModelSerializer):
         model = Player
         fields = ["id", "name", "nickname", "photo", "birth_year", "id_number", "rating", "hang", "join_date"]
         read_only_fields = ["join_date"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        role = services.get_role(getattr(request, "user", None)) if request else None
+        if role != "admin":
+            data.pop("id_number", None)
+            data.pop("birth_year", None)
+        return data
 
 
 class TournamentSerializer(serializers.ModelSerializer):
