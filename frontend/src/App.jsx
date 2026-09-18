@@ -342,24 +342,24 @@ function PlayerCombobox({ players, value, onChange, placeholder, excludeIds }) {
 
 function MatchTeamsGrid({ leftP1, leftP2, rightP1, rightP2, middle }) {
   const hasSecondRow = !!(leftP2 || rightP2);
-  const nameStyle = { textAlign: "left", color: C.nameColor };
+  const nameStyle = { textAlign: "left", color: C.nameColor, fontWeight: 700 };
   return (
-    <div style={{ display: "inline-grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", rowGap: 1, columnGap: 14 }}>
-      <div style={{ ...nameStyle, fontWeight: 700 }}>{leftP1?.name}</div>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,1fr) 78px minmax(120px,1fr)", width: "100%", alignItems: "center", rowGap: 1, columnGap: 10 }}>
+      <div style={nameStyle}>{leftP1?.name}</div>
       <div
         className="tabular"
         style={{
           gridRow: hasSecondRow ? "span 2" : "auto", alignSelf: "center",
-          textAlign: "center", fontSize: 12.5, fontWeight: 700, color: C.muted, whiteSpace: "nowrap",
+          textAlign: "center", fontSize: 13, fontWeight: 800, color: C.ink, whiteSpace: "nowrap",
         }}
       >
         {middle}
       </div>
-      <div style={{ ...nameStyle, fontWeight: 700 }}>{rightP1?.name}</div>
+      <div style={nameStyle}>{rightP1?.name}</div>
       {hasSecondRow && (
         <>
-          <div style={{ ...nameStyle, fontWeight: 600, fontSize: 12.5 }}>{leftP2?.name}</div>
-          <div style={{ ...nameStyle, fontWeight: 600, fontSize: 12.5 }}>{rightP2?.name}</div>
+          <div style={nameStyle}>{leftP2?.name}</div>
+          <div style={nameStyle}>{rightP2?.name}</div>
         </>
       )}
     </div>
@@ -1316,9 +1316,9 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
   }
 
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: `1px solid ${C.line}` }}>
-      <div>
-        <div className="flex items-center gap-2">
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: `1px solid ${C.line}`, gap: 12 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="flex items-center gap-2" style={{ width: "100%" }}>
           <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px" }}>
             {isDoubles ? "ĐÔI" : "ĐƠN"}
           </span>
