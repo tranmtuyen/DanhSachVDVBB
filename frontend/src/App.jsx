@@ -341,16 +341,25 @@ function PlayerCombobox({ players, value, onChange, placeholder, excludeIds }) {
 }
 
 function MatchTeamsGrid({ leftP1, leftP2, rightP1, rightP2, middle }) {
+  const hasSecondRow = !!(leftP2 || rightP2);
+  const nameStyle = { textAlign: "left", color: C.nameColor };
   return (
     <div style={{ display: "inline-grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", rowGap: 1, columnGap: 14 }}>
-      <div style={{ textAlign: "right", fontWeight: 700 }}>{leftP1?.name}</div>
-      <div className="tabular" style={{ textAlign: "center", fontSize: 12.5, fontWeight: 700, color: C.muted, whiteSpace: "nowrap" }}>{middle}</div>
-      <div style={{ textAlign: "left", fontWeight: 700 }}>{rightP1?.name}</div>
-      {leftP2 && (
+      <div style={{ ...nameStyle, fontWeight: 700 }}>{leftP1?.name}</div>
+      <div
+        className="tabular"
+        style={{
+          gridRow: hasSecondRow ? "span 2" : "auto", alignSelf: "center",
+          textAlign: "center", fontSize: 12.5, fontWeight: 700, color: C.muted, whiteSpace: "nowrap",
+        }}
+      >
+        {middle}
+      </div>
+      <div style={{ ...nameStyle, fontWeight: 700 }}>{rightP1?.name}</div>
+      {hasSecondRow && (
         <>
-          <div style={{ textAlign: "right", color: C.muted, fontSize: 12.5 }}>{leftP2?.name}</div>
-          <div />
-          <div style={{ textAlign: "left", color: C.muted, fontSize: 12.5 }}>{rightP2?.name}</div>
+          <div style={{ ...nameStyle, fontWeight: 600, fontSize: 12.5 }}>{leftP2?.name}</div>
+          <div style={{ ...nameStyle, fontWeight: 600, fontSize: 12.5 }}>{rightP2?.name}</div>
         </>
       )}
     </div>
