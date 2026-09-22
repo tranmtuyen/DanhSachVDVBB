@@ -468,6 +468,10 @@ export default function App() {
     setToken(null);
     setCurrentUser(null);
   }
+  function updateToken(newToken) {
+    localStorage.setItem("tt_token", newToken);
+    setToken(newToken);
+  }
 
   async function refreshAll() {
     try {
@@ -707,7 +711,7 @@ export default function App() {
       )}
 
       {showChangePassword && (
-        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} onTokenUpdated={updateToken} />
       )}
 
       {selectedPlayer && (
@@ -1858,7 +1862,7 @@ const menuBtnStyle = {
 };
 
 /* ---------- Đổi mật khẩu ---------- */
-function ChangePasswordModal({ onClose }) {
+function ChangePasswordModal({ onClose, onTokenUpdated }) {
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -1875,7 +1879,8 @@ function ChangePasswordModal({ onClose }) {
     }
     setLoading(true);
     try {
-      await apiPostJSON("/auth/change-password/", { old_password: oldPassword, new_password: newPassword });
+      const res = await apiPostJSON("/auth/change-password/", { old_password: oldPassword, new_password: newPassword });
+      if (res?.token) onTokenUpdated(res.token);
       setSuccess(true);
       setTimeout(onClose, 1500);
     } catch (err) {

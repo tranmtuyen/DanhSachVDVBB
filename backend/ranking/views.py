@@ -75,7 +75,10 @@ def change_password_view(request):
         return Response({"detail": " ".join(e.messages)}, status=400)
     request.user.set_password(new_password)
     request.user.save()
-    return Response(status=204)
+    # Thu hồi toàn bộ token cũ (đề phòng bị lộ ở nơi khác), cấp token mới cho phiên hiện tại dùng tiếp.
+    Token.objects.filter(user=request.user).delete()
+    token = Token.objects.create(user=request.user)
+    return Response({"token": token.key})
 
 
 # ================= Quản lý User (chỉ Quản trị viên) =================
