@@ -631,6 +631,7 @@ export default function App() {
           .tt-tg-mid { order: 3; margin: 3px 0; }
           .tt-tg-2 { order: 4; }
           .tt-tg-4 { order: 5; }
+          .tt-lb-th, .tt-lb-td { padding: 8px 8px !important; font-size: 12.5px !important; }
         }
         .tt-sidebar { width: 232px; flex-shrink: 0; transition: width 160ms ease; }
         .tt-sidebar-label { display: inline; }
@@ -825,11 +826,12 @@ function Leaderboard({ players, matches, history, onSelect }) {
         <EmptyState text="Không tìm thấy vận động viên nào khớp." />
       ) : (
         <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden" }}>
+          <div className="tt-lb-scroll" style={{ overflowX: "auto" }}>
           <table>
             <thead>
               <tr style={{ background: C.ink }}>
                 {cols.map((c) => (
-                  <th key={c.label} style={{ textAlign: c.align, padding: "13px 16px", fontSize: 11.5, color: "#AEB4C9", fontWeight: 700, fontStyle: "italic", letterSpacing: 0.4, textTransform: "uppercase" }}>
+                  <th key={c.label} className="tt-lb-th" style={{ textAlign: c.align, padding: "13px 16px", fontSize: 11.5, color: "#AEB4C9", fontWeight: 700, fontStyle: "italic", letterSpacing: 0.4, textTransform: "uppercase", whiteSpace: "nowrap" }}>
                     {c.label}
                   </th>
                 ))}
@@ -840,8 +842,8 @@ function Leaderboard({ players, matches, history, onSelect }) {
                 const rankNum = rankMap.get(p.id);
                 return (
                   <tr key={p.id} data-row onClick={() => onSelect(p)} style={{ borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
-                    <td className="tabular" style={{ padding: "12px 16px", textAlign: "left", fontStyle: "italic", fontWeight: 800, color: C.muted }}>#{rankNum}</td>
-                    <td style={{ padding: "12px 16px", textAlign: "left" }}>
+                    <td className="tt-lb-td tabular" style={{ padding: "12px 16px", textAlign: "left", fontStyle: "italic", fontWeight: 800, color: C.muted }}>#{rankNum}</td>
+                    <td className="tt-lb-td" style={{ padding: "12px 16px", textAlign: "left" }}>
                       <div className="flex items-center gap-3">
                         <Avatar player={p} size={34} />
                         <div>
@@ -854,7 +856,7 @@ function Leaderboard({ players, matches, history, onSelect }) {
                         </div>
                       </div>
                     </td>
-                    <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                    <td className="tt-lb-td" style={{ padding: "12px 16px", textAlign: "center" }}>
                       <ScorePill value={p.rating} />
                     </td>
                   </tr>
@@ -862,6 +864,7 @@ function Leaderboard({ players, matches, history, onSelect }) {
               })}
             </tbody>
           </table>
+          </div>
           <div style={{ borderTop: `1px solid ${C.line}` }}>
             <Pagination page={validPage} totalPages={totalPages} onChange={setPage} />
           </div>
@@ -912,6 +915,8 @@ function PlayersTab({ players, canManage, onAdd, onSelect }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
 
   const sortedByTen = useMemo(
     () => [...players].sort((a, b) => tenRieng(a.name).localeCompare(tenRieng(b.name), "vi")),
@@ -993,28 +998,38 @@ function PlayersTab({ players, canManage, onAdd, onSelect }) {
         </div>
       )}
 
-      <SearchBox value={query} onChange={setQuery} placeholder="Tìm vận động viên theo tên…" />
+      <SearchBox value={query} onChange={(v) => { setQuery(v); setPage(1); }} placeholder="Tìm vận động viên theo tên…" />
 
       {filteredPlayers.length === 0 ? (
         <EmptyState text={players.length === 0 ? "Chưa có vận động viên nào." : "Không tìm thấy vận động viên nào khớp."} />
       ) : (
-        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14 }}>
-          {filteredPlayers.map((p, i) => (
-            <div key={p.id} data-row onClick={() => onSelect(p)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: i < filteredPlayers.length - 1 ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
-              <div className="flex items-center gap-3">
-                <Avatar player={p} size={38} />
-                <div>
-                  <div style={{ fontWeight: 600 }}><NameWithNickname name={p.name} nickname={p.nickname} /></div>
-                  <div style={{ fontSize: 12.5, color: C.muted }}>Tham gia {fmtDate(p.join_date)}</div>
+        (() => {
+          const totalPages = Math.max(1, Math.ceil(filteredPlayers.length / PAGE_SIZE));
+          const validPage = Math.min(page, totalPages);
+          const paged = filteredPlayers.slice((validPage - 1) * PAGE_SIZE, validPage * PAGE_SIZE);
+          return (
+            <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14 }}>
+              {paged.map((p, i) => (
+                <div key={p.id} data-row onClick={() => onSelect(p)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: i < paged.length - 1 ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
+                  <div className="flex items-center gap-3">
+                    <Avatar player={p} size={38} />
+                    <div>
+                      <div style={{ fontWeight: 600 }}><NameWithNickname name={p.name} nickname={p.nickname} /></div>
+                      <div style={{ fontSize: 12.5, color: C.muted }}>Tham gia {fmtDate(p.join_date)}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <HangBadge hang={p.hang} />
+                    <ScorePill value={p.rating} />
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <HangBadge hang={p.hang} />
-                <ScorePill value={p.rating} />
+              ))}
+              <div style={{ borderTop: `1px solid ${C.line}` }}>
+                <Pagination page={validPage} totalPages={totalPages} onChange={setPage} />
               </div>
             </div>
-          ))}
-        </div>
+          );
+        })()
       )}
     </div>
   );
