@@ -462,7 +462,7 @@ export default function App() {
     const res = await apiPostJSON("/auth/login/", { username, password });
     localStorage.setItem("tt_token", res.token);
     setToken(res.token);
-    setCurrentUser({ id: res.id, username: res.username, role: res.role });
+    setCurrentUser({ id: res.id, username: res.username, role: res.role, player_id: res.player_id, photo: res.photo });
   }
   async function logout() {
     try { await apiPostJSON("/auth/logout/", {}); } catch {}
@@ -741,7 +741,7 @@ export default function App() {
       <div style={{ flex: 1, minWidth: 0 }}>
         {currentUser && (
           <div style={{ display: "flex", justifyContent: "flex-end", padding: "14px 24px 0" }}>
-            <UserMenu currentUser={currentUser} onLogout={logout} onChangePassword={() => setShowChangePassword(true)} />
+            <UserMenu currentUser={currentUser} onLogout={logout} onChangePassword={() => setShowChangePassword(true)} onOpenProfile={() => setTab("profile")} />
           </div>
         )}
         <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px" }}>
@@ -778,6 +778,17 @@ export default function App() {
 
           {tab === "users" && role === "admin" && (
             <UsersTab players={players} onCreateUser={createUser} onUpdateRole={updateUserRole} onResetPassword={resetUserPassword} />
+          )}
+
+          {tab === "profile" && currentUser && (
+            <ProfileTab
+              currentUser={currentUser}
+              players={players}
+              matches={matches}
+              tournaments={tournaments}
+              history={history}
+              onChangePassword={() => setShowChangePassword(true)}
+            />
           )}
         </div>
       </div>
@@ -1238,6 +1249,176 @@ function PlayerDetail({ player, history, matches, tournaments, allPlayers, canMa
       {showPhotoLightbox && (
         <PhotoLightbox url={photoUrl(player)} alt={player.name} onClose={() => setShowPhotoLightbox(false)} />
       )}
+    </div>
+  );
+}
+
+/* ---------- Trang Hồ sơ (Profile) ---------- */
+function ProfileTab({ currentUser, players, matches, tournaments, history, onChangePassword }) {
+  const player = currentUser.player_id ? players.find((p) => p.id === currentUser.player_id) : null;
+  const [historyPage, setHistoryPage] = useState(1);
+  const HISTORY_PAGE_SIZE = 20;
+
+  const sortedAll = useMemo(() => [...players].sort((a, b) => b.rating - a.rating), [players]);
+  const rankNum = player ? sortedAll.findIndex((p) => p.id === player.id) + 1 : null;
+
+  const playerHistory = useMemo(
+    () => (player ? history.filter((h) => h.player === player.id) : []),
+    [history, player]
+  );
+
+  const chronoHistory = useMemo(() => [...playerHistory].reverse(), [playerHistory]);
+  const chartData = useMemo(() => {
+    if (!player) return [];
+    const points = chronoHistory.map((h, i) => ({ idx: i + 1, rating: h.after }));
+    return [{ idx: 0, rating: chronoHistory.length ? chronoHistory[0].before : player.rating }, ...points];
+  }, [chronoHistory, player]);
+
+  const finishedMatches = useMemo(() => {
+    if (!player) return [];
+    return matches.filter(
+      (m) => m.status === "completed" &&
+        (m.player_a === player.id || m.player_a2 === player.id || m.player_b === player.id || m.player_b2 === player.id)
+    );
+  }, [matches, player]);
+
+  const { winCount, lossCount, winRate } = useMemo(() => {
+    if (!player || finishedMatches.length === 0) return { winCount: 0, lossCount: 0, winRate: 0 };
+    let win = 0;
+    for (const m of finishedMatches) {
+      const inA = m.player_a === player.id || m.player_a2 === player.id;
+      const side = inA ? "A" : "B";
+      if (side === m.winner_side) win++;
+    }
+    const loss = finishedMatches.length - win;
+    return { winCount: win, lossCount: loss, winRate: Math.round((win / finishedMatches.length) * 100) };
+  }, [finishedMatches, player]);
+
+  const lastMatchInfo = useMemo(() => {
+    if (!player || finishedMatches.length === 0) return null;
+    const last = [...finishedMatches].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+    const inA = last.player_a === player.id || last.player_a2 === player.id;
+    const selfWon = (inA && last.winner_side === "A") || (!inA && last.winner_side === "B");
+    const oppIds = inA ? [last.player_b, last.player_b2] : [last.player_a, last.player_a2];
+    const oppNames = oppIds.filter(Boolean).map((id) => players.find((p) => p.id === id)?.name).filter(Boolean).join(" & ");
+    return { selfWon, oppNames, date: last.date };
+  }, [finishedMatches, player, players]);
+
+  return (
+    <div className="flex flex-col gap-4">
+      {player && (
+        <>
+          <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 20 }}>
+            <div className="flex items-center justify-between" style={{ flexWrap: "wrap", gap: 12 }}>
+              <div className="flex items-center gap-3">
+                <Avatar player={player} size={56} />
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 700, fontFamily: FONT_DISPLAY }}>
+                    <NameWithNickname name={player.name} nickname={player.nickname} />
+                  </div>
+                  <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>
+                    #{rankNum} / {players.length} VĐV
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <HangBadge hang={player.hang} />
+                <ScorePill value={player.rating} style={{ fontSize: 18, padding: "6px 16px" }} />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "16px 14px", textAlign: "center" }}>
+              <div className="tabular" style={{ fontSize: 22, fontWeight: 800, color: C.ink, fontFamily: FONT_DISPLAY }}>{finishedMatches.length}</div>
+              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>Tổng số trận</div>
+            </div>
+            <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "16px 14px", textAlign: "center" }}>
+              <div className="tabular" style={{ fontSize: 22, fontWeight: 800, color: C.ink, fontFamily: FONT_DISPLAY }}>
+                {winCount}<span style={{ color: C.muted, fontSize: 16 }}>–{lossCount}</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>Thắng–Thua ({winRate}%)</div>
+            </div>
+            <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "16px 14px", textAlign: "center" }}>
+              {lastMatchInfo ? (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: lastMatchInfo.selfWon ? C.pillUpText : C.pillDownText }}>
+                    {lastMatchInfo.selfWon ? "Thắng" : "Thua"} vs {lastMatchInfo.oppNames}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>{fmtDate(lastMatchInfo.date)}</div>
+                </>
+              ) : (
+                <div style={{ fontSize: 12.5, color: C.muted, paddingTop: 4 }}>Chưa có trận nào</div>
+              )}
+            </div>
+          </div>
+
+          {chartData.length > 1 && (
+            <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 16, height: 220 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid stroke={C.line} vertical={false} />
+                  <XAxis dataKey="idx" hide />
+                  <YAxis domain={["dataMin - 20", "dataMax + 20"]} tick={{ fontSize: 12, fill: C.muted }} width={44} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="rating" stroke={C.accent} strokeWidth={2.5} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14 }}>
+            <div style={{ padding: "12px 16px", fontWeight: 700, borderBottom: `1px solid ${C.line}` }}>Lịch sử điểm</div>
+            {playerHistory.length === 0 ? (
+              <div style={{ padding: 16 }}><EmptyState text="Chưa có lịch sử điểm." /></div>
+            ) : (
+              <>
+                {playerHistory.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE).map((h, i, arr) => {
+                  const linkedMatch = h.match ? matches.find((m) => m.id === h.match) : null;
+                  if (linkedMatch) {
+                    return (
+                      <div key={h.id} style={{ padding: "0 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                        <MatchRow
+                          match={linkedMatch}
+                          data={{ players, tournaments }}
+                          canManage={false}
+                          showDate
+                          perspectivePlayerId={player.id}
+                        />
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={h.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                      <div>
+                        <div style={{ fontSize: 13.5 }}>{h.reason}</div>
+                        <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{fmtDate(h.date)}</div>
+                      </div>
+                      <div className="tabular" style={{ fontWeight: 700, color: h.delta >= 0 ? "#1E8E52" : C.bad }}>
+                        {h.delta >= 0 ? "+" : ""}{h.delta}
+                      </div>
+                    </div>
+                  );
+                })}
+                <Pagination page={historyPage} totalPages={Math.max(1, Math.ceil(playerHistory.length / HISTORY_PAGE_SIZE))} onChange={setHistoryPage} />
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 20 }}>
+        <div style={{ fontSize: 12, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 12 }}>
+          Tài khoản
+        </div>
+        <div className="flex items-center justify-between" style={{ flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 700 }}>{currentUser.username}</div>
+            <div style={{ fontSize: 12.5, color: C.muted }}>{ROLE_LABEL[currentUser.role] || currentUser.role}</div>
+          </div>
+          <button style={btnGhost} onClick={onChangePassword}>Đổi mật khẩu</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1871,14 +2052,9 @@ function PlayerDetailModal({ onClose, children }) {
 }
 
 /* ---------- Menu user góc trên bên phải ---------- */
-function UserMenu({ currentUser, onLogout, onChangePassword }) {
+function UserMenu({ currentUser, onLogout, onChangePassword, onOpenProfile }) {
   const [open, setOpen] = useState(false);
   const initials = (currentUser.username || "?")[0]?.toUpperCase() || "?";
-
-  function stub(label) {
-    setOpen(false);
-    alert(`"${label}" sẽ được phát triển trong thời gian tới.`);
-  }
 
   return (
     <div style={{ position: "relative" }}>
@@ -1921,7 +2097,7 @@ function UserMenu({ currentUser, onLogout, onChangePassword }) {
               borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", overflow: "hidden", zIndex: 40, minWidth: 170,
             }}
           >
-            <button onClick={() => stub("Hồ sơ")} style={menuBtnStyle}>Hồ sơ</button>
+            <button onClick={() => { setOpen(false); onOpenProfile(); }} style={menuBtnStyle}>Hồ sơ</button>
             <button onClick={() => { setOpen(false); onChangePassword(); }} style={menuBtnStyle}>Đổi mật khẩu</button>
             <div style={{ borderTop: `1px solid ${C.line}` }} />
             <button onClick={() => { setOpen(false); onLogout(); }} style={{ ...menuBtnStyle, color: C.bad }}>Đăng xuất</button>

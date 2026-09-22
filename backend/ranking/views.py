@@ -46,7 +46,12 @@ def login_view(request):
     if not user:
         return Response({"detail": "Sai tên đăng nhập hoặc mật khẩu."}, status=400)
     token, _ = Token.objects.get_or_create(user=user)
-    return Response({"token": token.key, "id": user.id, "username": user.username, "role": services.get_role(user)})
+    player = services.get_linked_player(user)
+    photo = request.build_absolute_uri(player.photo.url) if player and player.photo else None
+    return Response({
+        "token": token.key, "id": user.id, "username": user.username, "role": services.get_role(user),
+        "player_id": player.id if player else None, "photo": photo,
+    })
 
 
 @api_view(["POST"])
@@ -59,7 +64,12 @@ def logout_view(request):
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def me_view(request):
-    return Response({"id": request.user.id, "username": request.user.username, "role": services.get_role(request.user)})
+    player = services.get_linked_player(request.user)
+    photo = request.build_absolute_uri(player.photo.url) if player and player.photo else None
+    return Response({
+        "id": request.user.id, "username": request.user.username, "role": services.get_role(request.user),
+        "player_id": player.id if player else None, "photo": photo,
+    })
 
 
 @api_view(["POST"])
