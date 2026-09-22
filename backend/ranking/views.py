@@ -1,5 +1,7 @@
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import permissions, viewsets
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action, api_view, permission_classes
@@ -44,7 +46,7 @@ def login_view(request):
     if not user:
         return Response({"detail": "Sai tên đăng nhập hoặc mật khẩu."}, status=400)
     token, _ = Token.objects.get_or_create(user=user)
-    return Response({"token": token.key, "username": user.username, "role": services.get_role(user)})
+    return Response({"token": token.key, "id": user.id, "username": user.username, "role": services.get_role(user)})
 
 
 @api_view(["POST"])
@@ -57,7 +59,23 @@ def logout_view(request):
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def me_view(request):
-    return Response({"username": request.user.username, "role": services.get_role(request.user)})
+    return Response({"id": request.user.id, "username": request.user.username, "role": services.get_role(request.user)})
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def change_password_view(request):
+    old_password = request.data.get("old_password", "")
+    new_password = request.data.get("new_password", "")
+    if not request.user.check_password(old_password):
+        return Response({"detail": "Mật khẩu hiện tại không đúng."}, status=400)
+    try:
+        validate_password(new_password, request.user)
+    except DjangoValidationError as e:
+        return Response({"detail": " ".join(e.messages)}, status=400)
+    request.user.set_password(new_password)
+    request.user.save()
+    return Response(status=204)
 
 
 # ================= Quản lý User (chỉ Quản trị viên) =================

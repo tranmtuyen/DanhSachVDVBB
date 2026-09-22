@@ -435,7 +435,7 @@ export default function App() {
   const [tab, setTab] = useState("leaderboard");
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [showLogin, setShowLogin] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const role = currentUser?.role || "public";
@@ -460,7 +460,7 @@ export default function App() {
     const res = await apiPostJSON("/auth/login/", { username, password });
     localStorage.setItem("tt_token", res.token);
     setToken(res.token);
-    setCurrentUser({ username: res.username, role: res.role });
+    setCurrentUser({ id: res.id, username: res.username, role: res.role });
   }
   async function logout() {
     try { await apiPostJSON("/auth/logout/", {}); } catch {}
@@ -687,7 +687,7 @@ export default function App() {
         </div>
 
         <div style={{ padding: 14, borderTop: "1px solid #212E27", position: "relative" }}>
-          {!currentUser ? (
+          {!currentUser && (
             <button
               onClick={() => setShowLogin(true)}
               className="flex items-center justify-center gap-2"
@@ -698,38 +698,6 @@ export default function App() {
             >
               <LoginIcon /> <span className="tt-sidebar-label">Đăng Nhập</span>
             </button>
-          ) : (
-            <>
-              <div
-                className="flex items-center justify-between"
-                style={{ cursor: "pointer" }}
-                onClick={() => setShowUserMenu((v) => !v)}
-              >
-                <div className="tt-sidebar-user-info">
-                  <div style={{ color: "#fff", fontSize: 13, fontWeight: 700 }}>{currentUser.username}</div>
-                  <div style={{ color: "#9BA89E", fontSize: 11 }}>{ROLE_LABEL[currentUser.role] || currentUser.role}</div>
-                </div>
-                <span style={{ color: "#9BA89E", fontSize: 11, transform: showUserMenu ? "none" : "rotate(180deg)" }}>▲</span>
-              </div>
-              {showUserMenu && (
-                <>
-                  <div style={{ position: "fixed", inset: 0, zIndex: 39 }} onClick={() => setShowUserMenu(false)} />
-                  <div
-                    style={{
-                      position: "absolute", bottom: "100%", left: 14, right: 14, marginBottom: 8, background: C.surface,
-                      borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.25)", overflow: "hidden", zIndex: 40,
-                    }}
-                  >
-                    <button
-                      onClick={() => { setShowUserMenu(false); logout(); }}
-                      style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", color: C.bad, fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}
-                    >
-                      Đăng xuất
-                    </button>
-                  </div>
-                </>
-              )}
-            </>
           )}
         </div>
       </div>
@@ -738,8 +706,37 @@ export default function App() {
         <LoginModal onClose={() => setShowLogin(false)} onLogin={login} />
       )}
 
+      {showChangePassword && (
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
+      )}
+
+      {selectedPlayer && (
+        <PlayerDetailModal onClose={() => setSelectedPlayer(null)}>
+          <PlayerDetail
+            key={selectedPlayer.id}
+            player={players.find((p) => p.id === selectedPlayer.id) || selectedPlayer}
+            history={history.filter((h) => h.player === selectedPlayer.id)}
+            matches={matches}
+            tournaments={tournaments}
+            allPlayers={players}
+            canManage={canManagePlayers}
+            canManageMatches={canManageMatches}
+            onEdit={editPlayer}
+            onDeletePlayer={deletePlayer}
+            onEditMatch={editMatch}
+            onDeleteMatch={deleteMatch}
+            onBack={() => setSelectedPlayer(null)}
+          />
+        </PlayerDetailModal>
+      )}
+
       {/* Main content */}
       <div style={{ flex: 1, minWidth: 0 }}>
+        {currentUser && (
+          <div style={{ display: "flex", justifyContent: "flex-end", padding: "14px 24px 0" }}>
+            <UserMenu currentUser={currentUser} onLogout={logout} onChangePassword={() => setShowChangePassword(true)} />
+          </div>
+        )}
         <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px" }}>
           {loadError && (
             <div style={{ background: "#FBEAE7", color: C.bad, border: `1px solid ${C.bad}33`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13.5 }}>
@@ -748,29 +745,11 @@ export default function App() {
           )}
 
           {tab === "leaderboard" && (
-            <Leaderboard players={players} matches={matches} history={history} onSelect={(p) => { setSelectedPlayer(p); setTab("player-detail"); }} />
+            <Leaderboard players={players} matches={matches} history={history} onSelect={setSelectedPlayer} />
           )}
 
           {tab === "players" && (
-            <PlayersTab players={players} canManage={canManagePlayers} onAdd={addPlayer} onSelect={(p) => { setSelectedPlayer(p); setTab("player-detail"); }} />
-          )}
-
-          {tab === "player-detail" && selectedPlayer && (
-            <PlayerDetail
-              key={selectedPlayer.id}
-              player={players.find((p) => p.id === selectedPlayer.id) || selectedPlayer}
-              history={history.filter((h) => h.player === selectedPlayer.id)}
-              matches={matches}
-              tournaments={tournaments}
-              allPlayers={players}
-              canManage={canManagePlayers}
-              canManageMatches={canManageMatches}
-              onEdit={editPlayer}
-              onDeletePlayer={deletePlayer}
-              onEditMatch={editMatch}
-              onDeleteMatch={deleteMatch}
-              onBack={() => setTab("players")}
-            />
+            <PlayersTab players={players} canManage={canManagePlayers} onAdd={addPlayer} onSelect={setSelectedPlayer} />
           )}
 
           {tab === "tournaments" && (
@@ -1079,7 +1058,7 @@ function PlayerDetail({ player, history, matches, tournaments, allPlayers, canMa
 
   return (
     <div className="flex flex-col gap-4">
-      <button style={{ ...btnGhost, alignSelf: "flex-start" }} onClick={onBack}>← Quay lại danh sách</button>
+      {/* Nút quay lại đã thay bằng nút ✕ đóng popup ở PlayerDetailModal */}
 
       <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 20 }}>
         {!editing ? (
@@ -1791,6 +1770,157 @@ function FriendlyMatchesTab({ data, canManage, onEditMatch, onDeleteMatch }) {
 }
 
 /* ---------- Đăng nhập ---------- */
+/* ---------- Popup chi tiết VĐV ---------- */
+function PlayerDetailModal({ onClose, children }) {
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 50, padding: "5vh 16px", overflowY: "auto" }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: C.bg, borderRadius: 16, width: "100%", maxWidth: 640, position: "relative" }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Đóng"
+          style={{
+            position: "absolute", top: 12, right: 12, zIndex: 2, width: 32, height: 32, borderRadius: "50%",
+            border: "none", background: C.surface, boxShadow: "0 2px 8px rgba(0,0,0,0.15)", color: C.muted,
+            fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          ✕
+        </button>
+        <div style={{ padding: 20 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Menu user góc trên bên phải ---------- */
+function UserMenu({ currentUser, onLogout, onChangePassword }) {
+  const [open, setOpen] = useState(false);
+  const initials = (currentUser.username || "?")[0]?.toUpperCase() || "?";
+
+  function stub(label) {
+    setOpen(false);
+    alert(`"${label}" sẽ được phát triển trong thời gian tới.`);
+  }
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        className="flex items-center gap-2.5"
+        style={{ cursor: "pointer" }}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{currentUser.username}</div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.3 }}>
+            {ROLE_LABEL[currentUser.role] || currentUser.role}
+          </div>
+        </div>
+        <div
+          style={{
+            width: 36, height: 36, borderRadius: "50%", background: C.accent + "1A", color: C.accent,
+            display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14,
+            fontFamily: FONT_DISPLAY, border: `1.5px solid ${C.accent}40`, flexShrink: 0,
+          }}
+        >
+          {initials}
+        </div>
+      </div>
+
+      {open && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 39 }} onClick={() => setOpen(false)} />
+          <div
+            style={{
+              position: "absolute", top: "100%", right: 0, marginTop: 8, background: C.surface,
+              borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", overflow: "hidden", zIndex: 40, minWidth: 170,
+            }}
+          >
+            <button onClick={() => stub("Hồ sơ")} style={menuBtnStyle}>Hồ sơ</button>
+            <button onClick={() => { setOpen(false); onChangePassword(); }} style={menuBtnStyle}>Đổi mật khẩu</button>
+            <div style={{ borderTop: `1px solid ${C.line}` }} />
+            <button onClick={() => { setOpen(false); onLogout(); }} style={{ ...menuBtnStyle, color: C.bad }}>Đăng xuất</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+const menuBtnStyle = {
+  display: "block", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent",
+  border: "none", color: C.ink, fontSize: 13.5, fontWeight: 600, cursor: "pointer",
+};
+
+/* ---------- Đổi mật khẩu ---------- */
+function ChangePasswordModal({ onClose }) {
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError("");
+    if (newPassword !== confirmPassword) {
+      setError("Mật khẩu mới nhập lại không khớp.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiPostJSON("/auth/change-password/", { old_password: oldPassword, new_password: newPassword });
+      setSuccess(true);
+      setTimeout(onClose, 1500);
+    } catch (err) {
+      setError(err.message || "Có lỗi khi đổi mật khẩu.");
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}
+      onClick={onClose}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: C.surface, borderRadius: 14, padding: 24, width: "100%", maxWidth: 360 }}
+        className="flex flex-col gap-3"
+      >
+        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: FONT_DISPLAY }}>Đổi mật khẩu</div>
+        {success ? (
+          <div style={{ color: "#1E8E52", fontSize: 13.5 }}>Đổi mật khẩu thành công!</div>
+        ) : (
+          <>
+            <Field label="Mật khẩu hiện tại">
+              <input type="password" style={inputStyle} value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} required autoFocus />
+            </Field>
+            <Field label="Mật khẩu mới">
+              <input type="password" style={inputStyle} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
+            </Field>
+            <Field label="Nhập lại mật khẩu mới">
+              <input type="password" style={inputStyle} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+            </Field>
+            {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
+            <div className="flex gap-2" style={{ marginTop: 4 }}>
+              <button type="submit" style={btnPrimary} disabled={loading}>{loading ? "Đang lưu…" : "Đổi mật khẩu"}</button>
+              <button type="button" style={btnGhost} onClick={onClose}>Huỷ</button>
+            </div>
+          </>
+        )}
+      </form>
+    </div>
+  );
+}
+
 function LoginModal({ onClose, onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
