@@ -1826,15 +1826,23 @@ function UserMenu({ currentUser, onLogout, onChangePassword }) {
             {ROLE_LABEL[currentUser.role] || currentUser.role}
           </div>
         </div>
-        <div
-          style={{
-            width: 36, height: 36, borderRadius: "50%", background: C.accent + "1A", color: C.accent,
-            display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14,
-            fontFamily: FONT_DISPLAY, border: `1.5px solid ${C.accent}40`, flexShrink: 0,
-          }}
-        >
-          {initials}
-        </div>
+        {currentUser.photo ? (
+          <img
+            src={currentUser.photo}
+            alt={currentUser.username}
+            style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", flexShrink: 0, border: `1.5px solid ${C.accent}40` }}
+          />
+        ) : (
+          <div
+            style={{
+              width: 36, height: 36, borderRadius: "50%", background: C.accent + "1A", color: C.accent,
+              display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14,
+              fontFamily: FONT_DISPLAY, border: `1.5px solid ${C.accent}40`, flexShrink: 0,
+            }}
+          >
+            {initials}
+          </div>
+        )}
       </div>
 
       {open && (
