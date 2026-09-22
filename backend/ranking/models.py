@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -5,10 +6,16 @@ def player_photo_path(instance, filename):
     return f"players/{instance.id or 'new'}_{filename}"
 
 
+def validate_photo_size(value):
+    max_size = 1 * 1024 * 1024  # 1MB
+    if value.size > max_size:
+        raise ValidationError("Kích thước ảnh không được vượt quá 1MB.")
+
+
 class Player(models.Model):
     name = models.CharField("Họ tên", max_length=150)
     nickname = models.CharField("Biệt danh", max_length=100, blank=True)
-    photo = models.ImageField("Ảnh VĐV", upload_to=player_photo_path, blank=True, null=True)
+    photo = models.ImageField("Ảnh VĐV", upload_to=player_photo_path, blank=True, null=True, validators=[validate_photo_size])
     birth_year = models.PositiveIntegerField("Năm sinh", null=True, blank=True)
     id_number = models.CharField("CCCD", max_length=20, blank=True, default="")
     rating = models.IntegerField("Điểm rating", default=1000)
@@ -162,3 +169,21 @@ class PointHistory(models.Model):
 
     def __str__(self):
         return f"{self.player} {self.delta:+d} ({self.reason})"
+
+
+class UserProfile(models.Model):
+    """Gắn 1 tài khoản đăng nhập với đúng 1 VĐV (để sau này phát triển trang cá nhân)."""
+    user = models.OneToOneField(
+        "auth.User", verbose_name="Tài khoản", on_delete=models.CASCADE, related_name="profile"
+    )
+    player = models.OneToOneField(
+        Player, verbose_name="Vận động viên gắn với", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="linked_account"
+    )
+
+    class Meta:
+        verbose_name = "Hồ sơ tài khoản"
+        verbose_name_plural = "Hồ sơ tài khoản"
+
+    def __str__(self):
+        return f"{self.user.username} — {self.player.name if self.player else '(chưa gắn VĐV)'}"

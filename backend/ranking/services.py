@@ -255,6 +255,30 @@ def get_role(user):
     return "user"
 
 
+def get_linked_player(user):
+    """Trả về VĐV đang gắn với tài khoản này, hoặc None nếu chưa gắn/chưa có hồ sơ."""
+    from .models import UserProfile
+    try:
+        return user.profile.player
+    except UserProfile.DoesNotExist:
+        return None
+
+
+def set_linked_player(user, player):
+    """
+    Gắn tài khoản `user` với `player` (hoặc gỡ gắn nếu player=None).
+    Mỗi VĐV chỉ được gắn với duy nhất 1 tài khoản — raise ValueError nếu VĐV đã gắn tài khoản khác.
+    """
+    from .models import UserProfile
+    if player is not None:
+        conflict = UserProfile.objects.filter(player=player).exclude(user=user).first()
+        if conflict:
+            raise ValueError(f"VĐV này đã được gắn với tài khoản khác ({conflict.user.username}).")
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    profile.player = player
+    profile.save()
+
+
 def adjust_rating(player, new_rating, reason=None):
     """Admin chỉnh sửa trực tiếp điểm rating của VĐV, có ghi lại lịch sử điểm."""
     new_rating = int(new_rating)

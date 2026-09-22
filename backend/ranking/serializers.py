@@ -1,23 +1,39 @@
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from rest_framework import serializers
 
 from . import services
 from .models import Match, Player, PointHistory, Tournament, TournamentResult
 
 
+from rest_framework.fields import empty as DRF_EMPTY
+
+
 class UserSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
+    player_name = serializers.SerializerMethodField()
+    player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, allow_null=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     new_role = serializers.ChoiceField(choices=list(services.ROLE_GROUP.keys()), write_only=True, required=False)
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "is_active", "role", "password", "new_role"]
+        fields = ["id", "username", "email", "is_active", "role", "player", "player_name", "password", "new_role"]
 
     def get_role(self, obj):
         return services.get_role(obj)
+
+    def get_player_name(self, obj):
+        p = services.get_linked_player(obj)
+        return p.name if p else None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        p = services.get_linked_player(instance)
+        data["player"] = p.id if p else None
+        return data
 
     def validate_password(self, value):
         if value:
@@ -30,24 +46,38 @@ class UserSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         password = validated_data.pop("password", None)
         role = validated_data.pop("new_role", "user")
+        player = validated_data.pop("player", None)
         validated_data.pop("password", None)
-        user = User(username=validated_data["username"], email=validated_data.get("email", ""))
-        if password:
-            user.set_password(password)
-        user.save()
-        self._apply_role(user, role)
+        with transaction.atomic():
+            user = User(username=validated_data["username"], email=validated_data.get("email", ""))
+            if password:
+                user.set_password(password)
+            user.save()
+            self._apply_role(user, role)
+            if player is not None:
+                try:
+                    services.set_linked_player(user, player)
+                except ValueError as e:
+                    raise serializers.ValidationError({"player": str(e)})
         return user
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
         role = validated_data.pop("new_role", None)
-        instance.email = validated_data.get("email", instance.email)
-        instance.is_active = validated_data.get("is_active", instance.is_active)
-        if password:
-            instance.set_password(password)
-        instance.save()
-        if role:
-            self._apply_role(instance, role)
+        player = validated_data.pop("player", DRF_EMPTY)  # phân biệt "không gửi" và "gửi null để gỡ gắn"
+        with transaction.atomic():
+            instance.email = validated_data.get("email", instance.email)
+            instance.is_active = validated_data.get("is_active", instance.is_active)
+            if password:
+                instance.set_password(password)
+            instance.save()
+            if role:
+                self._apply_role(instance, role)
+            if player is not DRF_EMPTY:
+                try:
+                    services.set_linked_player(instance, player)
+                except ValueError as e:
+                    raise serializers.ValidationError({"player": str(e)})
         return instance
 
     def _apply_role(self, user, role):
