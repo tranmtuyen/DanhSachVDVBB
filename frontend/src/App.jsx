@@ -65,6 +65,8 @@ function fmtDate(d) {
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 /* Bỏ dấu tiếng Việt + chữ thường, dùng để tìm kiếm gần đúng không phân biệt dấu/hoa-thường */
+const MAX_PHOTO_SIZE = 1024 * 1024; // 1MB — khớp với giới hạn ở backend
+
 function normalizeVN(s) {
   return (s || "")
     .toLowerCase()
@@ -566,8 +568,8 @@ export default function App() {
     await refreshAll();
   }
 
-  async function createUser({ username, password, newRole }) {
-    return apiPostJSON("/users/", { username, password, new_role: newRole });
+  async function createUser({ username, password, newRole, playerId }) {
+    return apiPostJSON("/users/", { username, password, new_role: newRole, player: playerId || null });
   }
   async function updateUserRole(userId, newRole) {
     return apiPatchJSON(`/users/${userId}/`, { new_role: newRole });
@@ -774,7 +776,7 @@ export default function App() {
           )}
 
           {tab === "users" && role === "admin" && (
-            <UsersTab onCreateUser={createUser} onUpdateRole={updateUserRole} onResetPassword={resetUserPassword} />
+            <UsersTab players={players} onCreateUser={createUser} onUpdateRole={updateUserRole} onResetPassword={resetUserPassword} />
           )}
         </div>
       </div>
@@ -924,6 +926,12 @@ function PlayersTab({ players, canManage, onAdd, onSelect }) {
 
   function onPickPhoto(e) {
     const file = e.target.files?.[0] || null;
+    if (file && file.size > MAX_PHOTO_SIZE) {
+      setError("Ảnh vượt quá 1MB, vui lòng chọn ảnh nhỏ hơn.");
+      e.target.value = "";
+      return;
+    }
+    setError("");
     setPhotoFile(file);
     setPhotoPreview(file ? URL.createObjectURL(file) : null);
   }
@@ -1025,6 +1033,7 @@ function PlayerDetail({ player, history, matches, tournaments, allPlayers, canMa
   const [error, setError] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
   const HISTORY_PAGE_SIZE = 20;
+  const [showPhotoLightbox, setShowPhotoLightbox] = useState(false);
 
   const chronoHistory = useMemo(() => [...history].reverse(), [history]); // API trả mới nhất trước → đảo lại cho biểu đồ
   const chartData = useMemo(() => {
@@ -1040,6 +1049,12 @@ function PlayerDetail({ player, history, matches, tournaments, allPlayers, canMa
   }
   function onPickPhoto(e) {
     const file = e.target.files?.[0] || null;
+    if (file && file.size > MAX_PHOTO_SIZE) {
+      setError("Ảnh vượt quá 1MB, vui lòng chọn ảnh nhỏ hơn.");
+      e.target.value = "";
+      return;
+    }
+    setError("");
     setPhotoFile(file);
     setPhotoPreview(file ? URL.createObjectURL(file) : null);
   }
@@ -1069,7 +1084,12 @@ function PlayerDetail({ player, history, matches, tournaments, allPlayers, canMa
           <>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Avatar player={player} size={52} />
+                <div
+                  onClick={() => { if (photoUrl(player)) setShowPhotoLightbox(true); }}
+                  style={{ cursor: photoUrl(player) ? "pointer" : "default" }}
+                >
+                  <Avatar player={player} size={52} />
+                </div>
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 700, fontFamily: FONT_DISPLAY }}>{player.name}</div>
                   {player.nickname && <div style={{ color: C.muted, fontSize: 13 }}>{player.nickname}</div>}
@@ -1199,6 +1219,38 @@ function PlayerDetail({ player, history, matches, tournaments, allPlayers, canMa
           </>
         )}
       </div>
+
+      {showPhotoLightbox && (
+        <PhotoLightbox url={photoUrl(player)} alt={player.name} onClose={() => setShowPhotoLightbox(false)} />
+      )}
+    </div>
+  );
+}
+
+function PhotoLightbox({ url, alt, onClose }) {
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Đóng"
+        style={{
+          position: "absolute", top: 20, right: 20, width: 40, height: 40, borderRadius: "50%",
+          border: "none", background: "rgba(255,255,255,0.15)", color: "#fff", fontSize: 18,
+          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        ✕
+      </button>
+      <img
+        src={url}
+        alt={alt}
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: "92vw", maxHeight: "92vh", objectFit: "contain", borderRadius: 8 }}
+      />
     </div>
   );
 }
@@ -1988,15 +2040,10 @@ const ROLE_OPTIONS = [
   { id: "user", label: "Người dùng" },
 ];
 
-function UsersTab({ onCreateUser, onUpdateRole, onResetPassword }) {
+function UsersTab({ players, onCreateUser, onUpdateRole, onResetPassword }) {
   const [users, setUsers] = useState(null);
   const [loadErr, setLoadErr] = useState("");
-  const [open, setOpen] = useState(false);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [newRole, setNewRole] = useState("user");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
 
   async function load() {
     try {
@@ -2008,20 +2055,6 @@ function UsersTab({ onCreateUser, onUpdateRole, onResetPassword }) {
     }
   }
   useEffect(() => { load(); }, []);
-
-  async function submit(e) {
-    e.preventDefault();
-    if (!username.trim() || !password) return;
-    setSaving(true); setError("");
-    try {
-      await onCreateUser({ username: username.trim(), password, newRole });
-      setUsername(""); setPassword(""); setNewRole("user"); setOpen(false);
-      await load();
-    } catch (err) {
-      setError(err.message || "Có lỗi khi tạo user.");
-    }
-    setSaving(false);
-  }
 
   async function changeRole(userId, role) {
     try {
@@ -2046,31 +2079,16 @@ function UsersTab({ onCreateUser, onUpdateRole, onResetPassword }) {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        {!open ? (
-          <button style={btnPrimary} onClick={() => setOpen(true)}>+ Thêm user</button>
-        ) : (
-          <form onSubmit={submit} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 16 }} className="flex flex-col gap-3">
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Tên đăng nhập">
-                <input style={inputStyle} value={username} onChange={(e) => setUsername(e.target.value)} required />
-              </Field>
-              <Field label="Mật khẩu">
-                <input type="password" style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} required />
-              </Field>
-              <Field label="Vai trò">
-                <select style={inputStyle} value={newRole} onChange={(e) => setNewRole(e.target.value)}>
-                  {ROLE_OPTIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-                </select>
-              </Field>
-            </div>
-            {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
-            <div className="flex gap-2">
-              <button type="submit" style={btnPrimary} disabled={saving}>{saving ? "Đang lưu…" : "Lưu user"}</button>
-              <button type="button" style={btnGhost} onClick={() => setOpen(false)}>Huỷ</button>
-            </div>
-          </form>
-        )}
+        <button style={btnPrimary} onClick={() => setShowAdd(true)}>+ Thêm user</button>
       </div>
+
+      {showAdd && (
+        <AddUserModal
+          players={players}
+          onClose={() => setShowAdd(false)}
+          onCreate={async (payload) => { await onCreateUser(payload); await load(); }}
+        />
+      )}
 
       {loadErr && <EmptyState text={loadErr} />}
 
@@ -2082,6 +2100,7 @@ function UsersTab({ onCreateUser, onUpdateRole, onResetPassword }) {
             <div key={u.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: i < users.length - 1 ? `1px solid ${C.line}` : "none", flexWrap: "wrap", gap: 8 }}>
               <div>
                 <div style={{ fontWeight: 700 }}>{u.username}</div>
+                {u.player_name && <div style={{ fontSize: 12, color: C.muted }}>Gắn với VĐV: {u.player_name}</div>}
                 {u.email && <div style={{ fontSize: 12, color: C.muted }}>{u.email}</div>}
               </div>
               <div className="flex items-center gap-2">
@@ -2094,6 +2113,64 @@ function UsersTab({ onCreateUser, onUpdateRole, onResetPassword }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- Popup thêm user mới ---------- */
+function AddUserModal({ players, onClose, onCreate }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("sm@123456");
+  const [newRole, setNewRole] = useState("user");
+  const [playerId, setPlayerId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!username.trim() || !password) return;
+    setSaving(true); setError("");
+    try {
+      await onCreate({ username: username.trim(), password, newRole, playerId: playerId || null });
+      onClose();
+    } catch (err) {
+      setError(err.message || "Có lỗi khi tạo user.");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}
+      onClick={onClose}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: C.surface, borderRadius: 14, padding: 24, width: "100%", maxWidth: 400 }}
+        className="flex flex-col gap-3"
+      >
+        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: FONT_DISPLAY }}>Thêm user mới</div>
+        <Field label="Tên đăng nhập">
+          <input style={inputStyle} value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus />
+        </Field>
+        <Field label="Mật khẩu">
+          <input style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} required />
+        </Field>
+        <Field label="Vai trò">
+          <select style={inputStyle} value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+            {ROLE_OPTIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Tên VĐV (tuỳ chọn — gắn tài khoản với 1 VĐV)">
+          <PlayerCombobox players={players} value={playerId} onChange={setPlayerId} placeholder="— Không gắn VĐV —" />
+        </Field>
+        {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
+        <div className="flex gap-2" style={{ marginTop: 4 }}>
+          <button type="submit" style={btnPrimary} disabled={saving}>{saving ? "Đang lưu…" : "Lưu user"}</button>
+          <button type="button" style={btnGhost} onClick={onClose}>Huỷ</button>
+        </div>
+      </form>
     </div>
   );
 }
