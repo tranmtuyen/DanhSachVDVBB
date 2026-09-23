@@ -655,7 +655,10 @@ export default function App() {
         .tt-combobox-scroll::-webkit-scrollbar-track { background: transparent; }
         .tt-combobox-scroll::-webkit-scrollbar-thumb { background: ${C.line}; border-radius: 8px; }
         .tt-combobox-scroll { scrollbar-width: thin; scrollbar-color: ${C.line} transparent; }
-        .grecaptcha-badge { bottom: 8px !important; z-index: 45 !important; }
+        .grecaptcha-badge {
+          bottom: 8px !important; left: 248px !important; right: auto !important; z-index: 45 !important;
+          transform: scale(0.7); transform-origin: bottom left;
+        }
         @media (max-width: 480px) {
           .tt-match-row { flex-direction: column; align-items: stretch !important; gap: 6px !important; }
           .tt-match-right { width: 100%; justify-content: space-between !important; }
@@ -686,8 +689,9 @@ export default function App() {
           .tt-sidebar.tt-sidebar-open .tt-nav-item { justify-content: flex-start !important; }
           .tt-sidebar.tt-sidebar-open .tt-sidebar-nav { flex: 0 1 auto !important; }
           .tt-footer { left: 62px !important; }
-          .tt-footer span:first-child { font-size: 10px !important; }
-          .tt-footer span:last-child { width: 0 !important; }
+          .tt-footer span:first-child { width: 60px !important; }
+          .tt-footer span:last-child { font-size: 10px !important; }
+          .grecaptcha-badge { left: 68px !important; transform: scale(0.6) !important; }
         }
       `}</style>
 
@@ -835,12 +839,12 @@ export default function App() {
         className="tt-footer"
         style={{
           position: "fixed", left: 232, right: 0, bottom: 0, height: 56, zIndex: 40,
-          background: C.ink, display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: C.ink, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 16,
           padding: "0 16px 0 24px", fontSize: 11.5, color: "#AEB4C9",
         }}
       >
+        <span style={{ width: 180, flexShrink: 0 }} />
         <span>© 2026 — CLB BÓNG BÀN SAO MAI - AN GIANG. Liên hệ: Trần Tuyên: 0907 303009</span>
-        <span style={{ width: 256 }} />
       </div>
     </div>
   );
