@@ -127,16 +127,27 @@ class TournamentResult(models.Model):
         ("hang_ba", "Hạng Ba"),
         ("tu_ket", "Tứ kết"),
     ]
+    CONTENT_CHOICES = [
+        ("don", "Đơn"),
+        ("doi", "Đôi"),
+        ("dong_doi", "Đồng đội"),
+    ]
 
     tournament = models.ForeignKey(Tournament, verbose_name="Giải đấu", on_delete=models.CASCADE, related_name="results")
+    content_type = models.CharField("Nội dung", max_length=10, choices=CONTENT_CHOICES, default="don")
     player = models.ForeignKey(Player, verbose_name="Vận động viên", on_delete=models.CASCADE, related_name="results")
+    teammates = models.ManyToManyField(
+        Player, verbose_name="Đồng đội (Đôi/Đồng đội)", blank=True, related_name="results_as_teammate"
+    )
     placement = models.CharField("Thành tích", max_length=20, choices=PLACEMENT_CHOICES)
-    bonus = models.IntegerField("Điểm thưởng")
+    bonus = models.IntegerField("Điểm thưởng (mỗi người)", default=0)
+    bonus_applied = models.BooleanField("Đã cộng điểm cho VĐV", default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Thành tích giải đấu"
         verbose_name_plural = "Thành tích giải đấu"
+        ordering = ["-created_at"]
 
     def __str__(self):
         return f"{self.player} — {self.get_placement_display()} ({self.tournament})"

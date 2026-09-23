@@ -18,7 +18,7 @@ from . import services
 from .models import LoginAttempt, Match, Player, PointHistory, Tournament, TournamentResult
 from .serializers import (
     MatchCreateSerializer, MatchSerializer, MatchUpdateSerializer, PlayerPhotoSerializer, PlayerSerializer,
-    PointHistorySerializer, ResultCreateSerializer, ResultSerializer,
+    PointHistorySerializer, ResultCreateSerializer, ResultSerializer, ResultUpdateSerializer,
     TournamentSerializer, UserSerializer,
 )
 
@@ -301,16 +301,52 @@ class ResultViewSet(viewsets.ModelViewSet):
     queryset = TournamentResult.objects.all()
     serializer_class = ResultSerializer
     permission_classes = [IsAdminOrManager]
-    http_method_names = ["get", "post", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def create(self, request, *args, **kwargs):
         serializer = ResultCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
-        result = services.record_result(tournament=d["tournament"], player=d["player"], placement=d["placement"])
-        if result is None:
-            raise ValidationError("Giải giao hữu không áp dụng điểm thưởng thành tích.")
+        try:
+            if d["save_only"]:
+                result = services.save_result_only(
+                    tournament=d["tournament"], content_type=d["content_type"],
+                    player=d["player"], teammates=d["teammates"], placement=d["placement"],
+                )
+            else:
+                result = services.record_result(
+                    tournament=d["tournament"], content_type=d["content_type"],
+                    player=d["player"], teammates=d["teammates"], placement=d["placement"],
+                )
+                if result is None:
+                    raise ValidationError("Giải giao hữu không áp dụng điểm thưởng thành tích.")
+        except ValueError as e:
+            raise ValidationError(str(e))
         return Response(ResultSerializer(result).data, status=201)
+
+    def partial_update(self, request, *args, **kwargs):
+        result = self.get_object()
+        serializer = ResultUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        apply_bonus = (not d["save_only"]) if "save_only" in d else result.bonus_applied
+        try:
+            result = services.edit_result(
+                result,
+                content_type=d.get("content_type", result.content_type),
+                placement=d.get("placement", result.placement),
+                player=d.get("player", result.player),
+                teammates=d.get("teammates", list(result.teammates.all())),
+                apply_bonus=apply_bonus,
+            )
+        except ValueError as e:
+            raise ValidationError(str(e))
+        return Response(ResultSerializer(result).data)
+
+    def destroy(self, request, *args, **kwargs):
+        result = self.get_object()
+        services.delete_result(result)
+        return Response(status=204)
 
 
 class PointHistoryViewSet(viewsets.ReadOnlyModelViewSet):

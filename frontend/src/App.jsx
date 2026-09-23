@@ -597,8 +597,22 @@ export default function App() {
     await refreshAll();
   }
 
-  async function addResult({ tournamentId, playerId, placement }) {
-    await apiPostJSON("/results/", { tournament: tournamentId, player: playerId, placement });
+  async function addResult({ tournamentId, contentType, playerId, teammateIds, placement, saveOnly }) {
+    await apiPostJSON("/results/", {
+      tournament: tournamentId, content_type: contentType, player: playerId,
+      teammates: teammateIds || [], placement, save_only: !!saveOnly,
+    });
+    await refreshAll();
+  }
+  async function editResult(resultId, { contentType, playerId, teammateIds, placement, saveOnly }) {
+    await apiPatchJSON(`/results/${resultId}/`, {
+      content_type: contentType, player: playerId, teammates: teammateIds || [],
+      placement, save_only: !!saveOnly,
+    });
+    await refreshAll();
+  }
+  async function deleteResult(resultId) {
+    await apiDelete(`/results/${resultId}/`);
     await refreshAll();
   }
 
@@ -768,6 +782,7 @@ export default function App() {
             history={history.filter((h) => h.player === selectedPlayer.id)}
             matches={matches}
             tournaments={tournaments}
+            results={results}
             allPlayers={players}
             canManage={canManagePlayers}
             canManageMatches={canManageMatches}
@@ -807,6 +822,7 @@ export default function App() {
               data={data} canCreate={canManageTournaments} canEnterResults={canEnterResults} canEnterMatches={canEnterMatches} canManageMatches={canManageMatches}
               canDeleteTournament={role === "admin"}
               onAddTournament={addTournament} onCloseTournament={closeTournament} onDeleteTournament={deleteTournament} onAddResult={addResult}
+              onEditResult={editResult} onDeleteResult={deleteResult}
               onEditMatch={editMatch} onDeleteMatch={deleteMatch}
             />
           )}
@@ -1101,7 +1117,7 @@ function PlayersTab({ players, canManage, onAdd, onSelect }) {
   );
 }
 
-function PlayerDetail({ player, history, matches, tournaments, allPlayers, canManage, canManageMatches, onEdit, onDeletePlayer, onEditMatch, onDeleteMatch, onBack }) {
+function PlayerDetail({ player, history, matches, tournaments, results, allPlayers, canManage, canManageMatches, onEdit, onDeletePlayer, onEditMatch, onDeleteMatch, onBack }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(player.name);
   const [nickname, setNickname] = useState(player.nickname || "");
@@ -1114,6 +1130,8 @@ function PlayerDetail({ player, history, matches, tournaments, allPlayers, canMa
   const [error, setError] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
   const HISTORY_PAGE_SIZE = 20;
+  const [detailTab, setDetailTab] = useState("history");
+  const myResults = (results || []).filter((r) => r.player === player.id || (r.teammates || []).includes(player.id));
   const [showPhotoLightbox, setShowPhotoLightbox] = useState(false);
 
   const chronoHistory = useMemo(() => [...history].reverse(), [history]); // API trả mới nhất trước → đảo lại cho biểu đồ
@@ -1262,10 +1280,18 @@ function PlayerDetail({ player, history, matches, tournaments, allPlayers, canMa
       )}
 
       <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14 }}>
-        <div style={{ padding: "12px 16px", fontWeight: 700, borderBottom: `1px solid ${C.line}` }}>Lịch sử điểm</div>
-        {history.length === 0 ? (
-          <div style={{ padding: 16 }}><EmptyState text="Chưa có lịch sử điểm." /></div>
-        ) : (
+        <div style={{ padding: "10px 16px", borderBottom: `1px solid ${C.line}` }} className="flex gap-2">
+          <button type="button" onClick={() => setDetailTab("history")} style={{ ...(detailTab === "history" ? btnPrimary : btnGhost), padding: "6px 14px", fontSize: 13 }}>
+            Lịch sử thi đấu
+          </button>
+          <button type="button" onClick={() => setDetailTab("achievements")} style={{ ...(detailTab === "achievements" ? btnPrimary : btnGhost), padding: "6px 14px", fontSize: 13 }}>
+            Thành tích
+          </button>
+        </div>
+        {detailTab === "history" ? (
+          history.length === 0 ? (
+            <div style={{ padding: 16 }}><EmptyState text="Chưa có lịch sử điểm." /></div>
+          ) : (
           <>
             {history.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE).map((h, i, arr) => {
               const linkedMatch = h.match ? matches.find((m) => m.id === h.match) : null;
@@ -1298,6 +1324,40 @@ function PlayerDetail({ player, history, matches, tournaments, allPlayers, canMa
             })}
             <Pagination page={historyPage} totalPages={Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE))} onChange={setHistoryPage} />
           </>
+          )
+        ) : (
+          myResults.length === 0 ? (
+            <div style={{ padding: 16 }}><EmptyState text="Chưa có thành tích nào." /></div>
+          ) : (
+            myResults.map((r, i) => {
+              const tournament = tournaments.find((tt) => tt.id === r.tournament);
+              const others = [r.player, ...(r.teammates || [])].filter((id) => id !== player.id);
+              const otherNames = others.map((id) => allPlayers.find((p) => p.id === id)?.name).filter(Boolean);
+              return (
+                <div
+                  key={r.id}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px",
+                    borderBottom: i < myResults.length - 1 ? `1px solid ${C.line}` : "none", fontSize: 13.5, flexWrap: "wrap", gap: 6,
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px", marginRight: 6 }}>
+                      {CONTENT_LABEL[r.content_type]}
+                    </span>
+                    <span style={{ fontWeight: 600 }}>{BONUS_LABEL[r.placement]}</span>
+                    <span style={{ color: C.muted }}> — {tournament?.name || "Giải đấu"}</span>
+                    {otherNames.length > 0 && <span style={{ color: C.muted }}> (cùng {otherNames.join(" & ")})</span>}
+                  </div>
+                  {r.bonus_applied ? (
+                    <span className="tabular" style={{ color: "#1E8E52", fontWeight: 700, fontSize: 12.5 }}>+{r.bonus}</span>
+                  ) : (
+                    <span style={{ color: C.muted, fontSize: 12 }}>Không cộng điểm</span>
+                  )}
+                </div>
+              );
+            })
+          )
         )}
       </div>
 
@@ -1441,7 +1501,7 @@ function ProfileTab({ currentUser, players, matches, tournaments, history, onCha
                   <div style={{ fontSize: 13, fontWeight: 800, color: lastMatchInfo.selfWon ? C.pillUpText : C.pillDownText }}>
                     {lastMatchInfo.selfWon ? "Thắng" : "Thua"} vs {lastMatchInfo.oppNames}
                   </div>
-                  <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>{fmtDate(lastMatchInfo.date)}</div>
+                  <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>Trận đấu gần nhất · {fmtDate(lastMatchInfo.date)}</div>
                 </>
               ) : (
                 <div style={{ fontSize: 12.5, color: C.muted, paddingTop: 4 }}>Chưa có trận nào</div>
@@ -1712,7 +1772,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
 }
 
 /* ---------- Tournaments ---------- */
-function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onAddTournament, onCloseTournament, onDeleteTournament, onAddResult, onEditMatch, onDeleteMatch }) {
+function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onAddTournament, onCloseTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onEditMatch, onDeleteMatch }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("khong_chap");
@@ -1787,6 +1847,7 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, can
               canEnterResults={canEnterResults} canEnterMatches={canEnterMatches} canManageMatches={canManageMatches}
               canDeleteTournament={canDeleteTournament}
               onCloseTournament={onCloseTournament} onDeleteTournament={onDeleteTournament} onAddResult={onAddResult}
+              onEditResult={onEditResult} onDeleteResult={onDeleteResult}
               onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
             />
           ))}
@@ -1796,17 +1857,161 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, can
   );
 }
 
-function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onCloseTournament, onDeleteTournament, onAddResult, onEditMatch, onDeleteMatch }) {
+const CONTENT_LABEL = { don: "Đơn", doi: "Đôi", dong_doi: "Đồng đội" };
+
+/* Chọn đồng đội cho nội dung Đôi (đúng 1 slot cố định) / Đồng đội (nhiều slot, thêm/xóa được) */
+function TeammatesPicker({ contentType, players, mainPlayerId, teammateIds, setTeammateIds }) {
+  if (contentType === "don") return null;
+
+  function setAt(i, val) {
+    setTeammateIds((ids) => ids.map((x, idx) => (idx === i ? val : x)));
+  }
+  function addSlot() {
+    setTeammateIds((ids) => [...ids, ""]);
+  }
+  function removeSlot(i) {
+    setTeammateIds((ids) => ids.filter((_, idx) => idx !== i));
+  }
+
+  const slots = contentType === "doi" ? (teammateIds.length ? teammateIds : [""]) : teammateIds;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {slots.map((tid, i) => {
+        const usedElsewhere = [Number(mainPlayerId), ...slots.filter((_, idx) => idx !== i).map(Number)].filter(Boolean);
+        return (
+          <div key={i} className="flex items-center gap-2">
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <PlayerCombobox players={players} value={tid} onChange={(v) => setAt(i, v)} excludeIds={usedElsewhere} placeholder="— Đồng đội —" />
+            </div>
+            {contentType === "dong_doi" && (
+              <button type="button" style={{ ...btnGhost, padding: "6px 12px", fontSize: 12.5 }} onClick={() => removeSlot(i)}>Xóa</button>
+            )}
+          </div>
+        );
+      })}
+      {contentType === "dong_doi" && (
+        <button type="button" style={{ ...btnGhost, padding: "6px 12px", fontSize: 12.5, alignSelf: "flex-start" }} onClick={addSlot}>+ Thêm đồng đội</button>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Dòng thành tích (dùng chung: có thể sửa/xóa, cùng phong cách MatchRow) ---------- */
+function ResultRow({ result: r, players, canManage, onEdit, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  const [contentType, setContentType] = useState(r.content_type);
+  const [playerId, setPlayerId] = useState(r.player);
+  const [teammateIds, setTeammateIds] = useState((r.teammates || []).map(String));
+  const [placement, setPlacement] = useState(r.placement);
+  const [applyBonus, setApplyBonus] = useState(r.bonus_applied);
+  const [error, setError] = useState("");
+
+  const p = players.find((pl) => pl.id === r.player);
+  const teamNames = (r.teammates || []).map((id) => players.find((pl) => pl.id === id)?.name).filter(Boolean);
+
+  async function save(e) {
+    e.preventDefault();
+    setError("");
+    const cleanTeammates = teammateIds.map(Number).filter(Boolean);
+    if (contentType === "doi" && cleanTeammates.length !== 1) { setError("Nội dung Đôi cần đúng 1 đồng đội."); return; }
+    if (contentType === "dong_doi" && cleanTeammates.length < 1) { setError("Nội dung Đồng đội cần ít nhất 1 đồng đội."); return; }
+    try {
+      await onEdit(r.id, { contentType, playerId: Number(playerId), teammateIds: cleanTeammates, placement, saveOnly: !applyBonus });
+      setEditing(false);
+    } catch (err) {
+      setError(err.message || "Có lỗi khi lưu.");
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm("Xóa thành tích này? Nếu đã cộng điểm thưởng, điểm sẽ được hoàn tác cho VĐV/đồng đội liên quan.")) return;
+    try {
+      await onDelete(r.id);
+    } catch (err) {
+      alert(err.message || "Có lỗi khi xóa.");
+    }
+  }
+
+  if (editing) {
+    return (
+      <form onSubmit={save} style={{ padding: "10px 0", borderBottom: `1px solid ${C.line}` }} className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          {["don", "doi", "dong_doi"].map((ct) => (
+            <button key={ct} type="button" onClick={() => { setContentType(ct); setTeammateIds([]); }} style={{ ...(contentType === ct ? btnPrimary : btnGhost), padding: "6px 12px", fontSize: 12.5 }}>
+              {CONTENT_LABEL[ct]}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <PlayerCombobox players={players} value={playerId} onChange={setPlayerId} />
+          <select style={inputStyle} value={placement} onChange={(e) => setPlacement(e.target.value)}>
+            <option value="vo_dich">Vô địch</option>
+            <option value="a_quan">Á quân</option>
+            <option value="hang_ba">Hạng Ba</option>
+            <option value="tu_ket">Tứ kết</option>
+          </select>
+        </div>
+        <TeammatesPicker contentType={contentType} players={players} mainPlayerId={playerId} teammateIds={teammateIds} setTeammateIds={setTeammateIds} />
+        <label className="flex items-center gap-1.5" style={{ fontSize: 13 }}>
+          <input type="checkbox" checked={applyBonus} onChange={(e) => setApplyBonus(e.target.checked)} />
+          Cộng điểm thưởng cho VĐV/đồng đội
+        </label>
+        {error && <div style={{ color: C.bad, fontSize: 12.5 }}>{error}</div>}
+        <div className="flex gap-2">
+          <button type="submit" style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }}>Lưu</button>
+          <button type="button" style={{ ...btnGhost, padding: "6px 14px", fontSize: 13 }} onClick={() => setEditing(false)}>Huỷ</button>
+        </div>
+      </form>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", fontSize: 13.5, borderBottom: `1px solid ${C.line}`, flexWrap: "wrap", gap: 6 }}>
+      <div>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px", marginRight: 6 }}>
+          {CONTENT_LABEL[r.content_type]}
+        </span>
+        <span>{BONUS_LABEL[r.placement]} — {p?.name}{teamNames.length ? ` & ${teamNames.join(" & ")}` : ""}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        {r.bonus_applied ? (
+          <span className="tabular" style={{ color: "#1E8E52", fontWeight: 700, fontSize: 12.5 }}>+{r.bonus}/người</span>
+        ) : (
+          <span style={{ color: C.muted, fontSize: 12 }}>Chỉ lưu, không cộng điểm</span>
+        )}
+        {canManage && (
+          <div className="flex gap-1">
+            <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12 }} onClick={() => setEditing(true)}>Sửa</button>
+            <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12, color: C.bad, borderColor: C.bad + "55" }} onClick={remove}>Xóa</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onCloseTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onEditMatch, onDeleteMatch }) {
   const matches = data.matches.filter((m) => m.tournament === t.id);
   const results = data.results.filter((r) => r.tournament === t.id);
+  const [contentType, setContentType] = useState("don");
   const [placement, setPlacement] = useState("vo_dich");
   const [playerId, setPlayerId] = useState("");
+  const [teammateIds, setTeammateIds] = useState([]);
+  const [resultError, setResultError] = useState("");
 
-  function submitResult(e) {
-    e.preventDefault();
+  async function submitResult(saveOnly) {
+    setResultError("");
     if (!playerId) return;
-    onAddResult({ tournamentId: t.id, playerId: Number(playerId), placement });
-    setPlayerId("");
+    const cleanTeammates = teammateIds.map(Number).filter(Boolean);
+    if (contentType === "doi" && cleanTeammates.length !== 1) { setResultError("Nội dung Đôi cần đúng 1 đồng đội."); return; }
+    if (contentType === "dong_doi" && cleanTeammates.length < 1) { setResultError("Nội dung Đồng đội cần ít nhất 1 đồng đội."); return; }
+    try {
+      await onAddResult({ tournamentId: t.id, contentType, playerId: Number(playerId), teammateIds: cleanTeammates, placement, saveOnly });
+      setPlayerId(""); setTeammateIds([]);
+    } catch (err) {
+      setResultError(err.message || "Có lỗi khi lưu thành tích.");
+    }
   }
 
   const accentColor = t.type === "khong_chap" ? C.accent : "#1E8E52";
@@ -1843,33 +2048,44 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
           {results.length > 0 && (
             <div>
               <div style={{ fontSize: 12.5, fontWeight: 700, color: C.muted, marginBottom: 6 }}>Thành tích</div>
-              {results.map((r) => {
-                const p = data.players.find((pl) => pl.id === r.player);
-                return (
-                  <div key={r.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13.5 }}>
-                    <span>{BONUS_LABEL[r.placement]} — {p?.name}</span>
-                    <span className="tabular" style={{ color: "#1E8E52", fontWeight: 700 }}>+{r.bonus}</span>
-                  </div>
-                );
-              })}
+              {results.map((r) => (
+                <ResultRow key={r.id} result={r} players={data.players} canManage={canEnterResults} onEdit={onEditResult} onDelete={onDeleteResult} />
+              ))}
             </div>
           )}
 
           {canEnterResults && (
-            <form onSubmit={submitResult} className="flex items-end gap-2" style={{ flexWrap: "wrap" }}>
-              <Field label="Vận động viên">
-                <PlayerCombobox players={data.players} value={playerId} onChange={setPlayerId} />
-              </Field>
-              <Field label="Thành tích">
-                <select style={inputStyle} value={placement} onChange={(e) => setPlacement(e.target.value)}>
-                  <option value="vo_dich">Vô địch</option>
-                  <option value="a_quan">Á quân</option>
-                  <option value="hang_ba">Hạng Ba</option>
-                  <option value="tu_ket">Tứ kết</option>
-                </select>
-              </Field>
-              <button type="submit" style={btnPrimary}>+ Cộng điểm thưởng</button>
-            </form>
+            <div className="flex flex-col gap-2">
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: C.muted }}>Thêm thành tích</div>
+              <div className="flex gap-2">
+                {["don", "doi", "dong_doi"].map((ct) => (
+                  <button key={ct} type="button" onClick={() => { setContentType(ct); setTeammateIds([]); }} style={{ ...(contentType === ct ? btnPrimary : btnGhost), padding: "6px 12px", fontSize: 12.5 }}>
+                    {CONTENT_LABEL[ct]}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-end gap-2" style={{ flexWrap: "wrap" }}>
+                <Field label="Vận động viên">
+                  <PlayerCombobox players={data.players} value={playerId} onChange={setPlayerId} />
+                </Field>
+                <Field label="Thành tích">
+                  <select style={inputStyle} value={placement} onChange={(e) => setPlacement(e.target.value)}>
+                    <option value="vo_dich">Vô địch</option>
+                    <option value="a_quan">Á quân</option>
+                    <option value="hang_ba">Hạng Ba</option>
+                    <option value="tu_ket">Tứ kết</option>
+                  </select>
+                </Field>
+              </div>
+              {contentType !== "don" && (
+                <TeammatesPicker contentType={contentType} players={data.players} mainPlayerId={playerId} teammateIds={teammateIds} setTeammateIds={setTeammateIds} />
+              )}
+              {resultError && <div style={{ color: C.bad, fontSize: 13 }}>{resultError}</div>}
+              <div className="flex gap-2">
+                <button type="button" style={btnPrimary} onClick={() => submitResult(false)}>+ Cộng điểm thưởng</button>
+                <button type="button" style={btnGhost} onClick={() => submitResult(true)}>Lưu thành tích</button>
+              </div>
+            </div>
           )}
 
           <div className="flex gap-2">

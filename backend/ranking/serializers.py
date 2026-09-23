@@ -177,16 +177,29 @@ class MatchUpdateSerializer(serializers.Serializer):
 
 
 class ResultSerializer(serializers.ModelSerializer):
+    teammates = serializers.PrimaryKeyRelatedField(many=True, queryset=Player.objects.all(), required=False)
+
     class Meta:
         model = TournamentResult
-        fields = ["id", "tournament", "player", "placement", "bonus"]
-        read_only_fields = ["bonus"]
+        fields = ["id", "tournament", "content_type", "player", "teammates", "placement", "bonus", "bonus_applied"]
+        read_only_fields = ["bonus", "bonus_applied"]
 
 
 class ResultCreateSerializer(serializers.Serializer):
     tournament = serializers.PrimaryKeyRelatedField(queryset=Tournament.objects.all())
+    content_type = serializers.ChoiceField(choices=TournamentResult.CONTENT_CHOICES, default="don")
     player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
+    teammates = serializers.PrimaryKeyRelatedField(many=True, queryset=Player.objects.all(), required=False, default=list)
     placement = serializers.ChoiceField(choices=TournamentResult.PLACEMENT_CHOICES)
+    save_only = serializers.BooleanField(default=False)  # True = "Lưu thành tích" (không cộng điểm)
+
+
+class ResultUpdateSerializer(serializers.Serializer):
+    content_type = serializers.ChoiceField(choices=TournamentResult.CONTENT_CHOICES, required=False)
+    player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False)
+    teammates = serializers.PrimaryKeyRelatedField(many=True, queryset=Player.objects.all(), required=False)
+    placement = serializers.ChoiceField(choices=TournamentResult.PLACEMENT_CHOICES, required=False)
+    save_only = serializers.BooleanField(required=False)
 
 
 class PointHistorySerializer(serializers.ModelSerializer):

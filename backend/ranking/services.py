@@ -5,8 +5,37 @@ Toàn bộ logic nghiệp vụ tính điểm — cùng công thức đã thống
 - Điểm thưởng một lần theo thành tích chung cuộc của giải.
 Tách riêng khỏi views/admin để dễ kiểm thử độc lập (unit test).
 """
+import json
+import os
+import urllib.parse
+import urllib.request
+
 from django.utils import timezone
 from .models import Match, PointHistory, Tournament, TournamentResult
+
+
+def verify_recaptcha(token, remote_ip=None):
+    """
+    Gọi Google reCAPTCHA API để xác minh token do widget phía frontend gửi lên.
+    Nếu chưa cấu hình RECAPTCHA_SECRET_KEY (chưa bật tính năng) -> coi như hợp lệ (không chặn oan).
+    Nếu gọi Google lỗi (mất mạng, timeout...) -> coi như KHÔNG hợp lệ (an toàn hơn là cho qua).
+    """
+    secret = os.environ.get("RECAPTCHA_SECRET_KEY", "")
+    if not secret:
+        return True
+    if not token:
+        return False
+    payload = {"secret": secret, "response": token}
+    if remote_ip:
+        payload["remoteip"] = remote_ip
+    data = urllib.parse.urlencode(payload).encode()
+    req = urllib.request.Request("https://www.google.com/recaptcha/api/siteverify", data=data)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            result = json.loads(resp.read().decode())
+        return bool(result.get("success"))
+    except Exception:
+        return False
 
 K_FACTOR = {
     Tournament.KHONG_CHAP: 32,
@@ -293,25 +322,101 @@ def adjust_rating(player, new_rating, reason=None):
     )
 
 
-def record_result(*, tournament, player, placement):
-    """Cộng điểm thưởng một lần theo thành tích chung cuộc của giải."""
+def _validate_result_group(content_type, player, teammates):
+    teammates = list(teammates or [])
+    if content_type == "don" and teammates:
+        raise ValueError("Nội dung Đơn không có đồng đội.")
+    if content_type == "doi" and len(teammates) != 1:
+        raise ValueError("Nội dung Đôi cần đúng 1 đồng đội.")
+    if content_type == "dong_doi" and len(teammates) < 1:
+        raise ValueError("Nội dung Đồng đội cần ít nhất 1 đồng đội.")
+    all_ids = [player.id] + [t.id for t in teammates]
+    if len(set(all_ids)) != len(all_ids):
+        raise ValueError("Danh sách VĐV/đồng đội không được trùng nhau.")
+    return teammates
+
+
+def record_result(*, tournament, content_type="don", player, teammates=None, placement):
+    """Cộng điểm thưởng theo thành tích chung cuộc của giải, cho VĐV và (nếu có) đồng đội cùng nội dung."""
+    teammates = _validate_result_group(content_type, player, teammates)
     bonus = compute_bonus(placement, tournament.type)
     if not bonus:
         return None
 
-    before = player.rating
-    player.rating += bonus
-    player.save(update_fields=["rating"])
-
     result = TournamentResult.objects.create(
-        tournament=tournament, player=player, placement=placement, bonus=bonus
+        tournament=tournament, content_type=content_type, player=player, placement=placement,
+        bonus=bonus, bonus_applied=True,
     )
-    PointHistory.objects.create(
-        player=player, date=timezone.localdate(), before=before, after=player.rating,
-        delta=bonus, reason=f"Thưởng thành tích: {BONUS_LABEL[placement]} — {tournament.name}",
-        result=result,
-    )
+    if teammates:
+        result.teammates.set(teammates)
+
+    for p in [player] + teammates:
+        before = p.rating
+        p.rating += bonus
+        p.save(update_fields=["rating"])
+        PointHistory.objects.create(
+            player=p, date=timezone.localdate(), before=before, after=p.rating,
+            delta=bonus, reason=f"Thưởng thành tích: {BONUS_LABEL[placement]} — {tournament.name}",
+            result=result,
+        )
     return result
+
+
+def save_result_only(*, tournament, content_type="don", player, teammates=None, placement):
+    """Chỉ lưu lại thành tích (đơn/đôi/đồng đội), KHÔNG cộng điểm cho ai."""
+    teammates = _validate_result_group(content_type, player, teammates)
+    result = TournamentResult.objects.create(
+        tournament=tournament, content_type=content_type, player=player, placement=placement,
+        bonus=0, bonus_applied=False,
+    )
+    if teammates:
+        result.teammates.set(teammates)
+    return result
+
+
+def _revert_result_bonus(result):
+    if result.bonus_applied and result.bonus:
+        for p in [result.player] + list(result.teammates.all()):
+            p.rating -= result.bonus
+            p.save(update_fields=["rating"])
+    result.history_entries.all().delete()
+
+
+def edit_result(result, *, content_type, placement, player, teammates, apply_bonus):
+    """Sửa thành tích: hoàn tác hiệu ứng điểm cũ (nếu có), ghi lại thông tin mới, cộng điểm lại nếu apply_bonus=True."""
+    teammates = _validate_result_group(content_type, player, teammates)
+    _revert_result_bonus(result)
+
+    result.content_type = content_type
+    result.placement = placement
+    result.player = player
+    result.bonus = 0
+    result.bonus_applied = False
+    result.save()
+    result.teammates.set(teammates)
+
+    if apply_bonus:
+        bonus = compute_bonus(placement, result.tournament.type)
+        if bonus:
+            for p in [player] + teammates:
+                before = p.rating
+                p.rating += bonus
+                p.save(update_fields=["rating"])
+                PointHistory.objects.create(
+                    player=p, date=timezone.localdate(), before=before, after=p.rating,
+                    delta=bonus, reason=f"Thưởng thành tích: {BONUS_LABEL[placement]} — {result.tournament.name}",
+                    result=result,
+                )
+            result.bonus = bonus
+            result.bonus_applied = True
+            result.save(update_fields=["bonus", "bonus_applied"])
+    return result
+
+
+def delete_result(result):
+    """Xóa 1 thành tích: hoàn tác điểm đã cộng (nếu có) cho VĐV + đồng đội, rồi xóa."""
+    _revert_result_bonus(result)
+    result.delete()
 
 
 def delete_tournament(tournament):
@@ -325,10 +430,6 @@ def delete_tournament(tournament):
         m.delete()
 
     for r in TournamentResult.objects.filter(tournament=tournament):
-        player = r.player
-        player.rating -= r.bonus
-        player.save(update_fields=["rating"])
-        r.history_entries.all().delete()
-        r.delete()
+        delete_result(r)
 
     tournament.delete()
