@@ -655,6 +655,7 @@ export default function App() {
         .tt-combobox-scroll::-webkit-scrollbar-track { background: transparent; }
         .tt-combobox-scroll::-webkit-scrollbar-thumb { background: ${C.line}; border-radius: 8px; }
         .tt-combobox-scroll { scrollbar-width: thin; scrollbar-color: ${C.line} transparent; }
+        .grecaptcha-badge { bottom: 8px !important; z-index: 45 !important; }
         @media (max-width: 480px) {
           .tt-match-row { flex-direction: column; align-items: stretch !important; gap: 6px !important; }
           .tt-match-right { width: 100%; justify-content: space-between !important; }
@@ -684,6 +685,9 @@ export default function App() {
           .tt-sidebar.tt-sidebar-open .tt-sidebar-user-info { display: inline !important; }
           .tt-sidebar.tt-sidebar-open .tt-nav-item { justify-content: flex-start !important; }
           .tt-sidebar.tt-sidebar-open .tt-sidebar-nav { flex: 0 1 auto !important; }
+          .tt-footer { left: 62px !important; }
+          .tt-footer span:first-child { font-size: 10px !important; }
+          .tt-footer span:last-child { width: 0 !important; }
         }
       `}</style>
 
@@ -778,7 +782,7 @@ export default function App() {
             <UserMenu currentUser={currentUser} onLogout={logout} onChangePassword={() => setShowChangePassword(true)} onOpenProfile={() => setTab("profile")} />
           </div>
         )}
-        <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px" }}>
+        <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px 24px 80px" }}>
           {loadError && (
             <div style={{ background: "#FBEAE7", color: C.bad, border: `1px solid ${C.bad}33`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13.5 }}>
               {loadError}
@@ -825,6 +829,18 @@ export default function App() {
             />
           )}
         </div>
+      </div>
+
+      <div
+        className="tt-footer"
+        style={{
+          position: "fixed", left: 232, right: 0, bottom: 0, height: 56, zIndex: 40,
+          background: C.ink, display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "0 16px 0 24px", fontSize: 11.5, color: "#AEB4C9",
+        }}
+      >
+        <span>© 2026 — CLB BÓNG BÀN SAO MAI - AN GIANG. Liên hệ: Trần Tuyên: 0907 303009</span>
+        <span style={{ width: 256 }} />
       </div>
     </div>
   );
