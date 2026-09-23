@@ -27,6 +27,9 @@ load_dotenv(BASE_DIR / '.env')
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-mc3e#68en1aqomuufknv&kt7&q0gg-e#%m*w!+ev*!bx+4$uh!')
 
+# Secret key của Google reCAPTCHA v3 (site key nằm ở frontend, KHÔNG đặt secret key ở đây trong code)
+RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '')
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 

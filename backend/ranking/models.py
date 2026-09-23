@@ -187,3 +187,20 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f"{self.user.username} — {self.player.name if self.player else '(chưa gắn VĐV)'}"
+
+
+class LoginAttempt(models.Model):
+    """
+    Theo dõi số lần đăng nhập sai liên tiếp theo từng username, để bắt xác nhận
+    Google reCAPTCHA sau 5 lần sai — chống dò mật khẩu tự động.
+    """
+    username = models.CharField("Tên đăng nhập", max_length=150, unique=True, db_index=True)
+    failed_count = models.PositiveIntegerField("Số lần sai liên tiếp", default=0)
+    updated_at = models.DateTimeField("Lần cập nhật gần nhất", auto_now=True)
+
+    class Meta:
+        verbose_name = "Lượt đăng nhập sai"
+        verbose_name_plural = "Lượt đăng nhập sai"
+
+    def __str__(self):
+        return f"{self.username}: {self.failed_count} lần sai"

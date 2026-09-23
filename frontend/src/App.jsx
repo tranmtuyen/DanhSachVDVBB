@@ -67,6 +67,26 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 /* Bỏ dấu tiếng Việt + chữ thường, dùng để tìm kiếm gần đúng không phân biệt dấu/hoa-thường */
 const MAX_PHOTO_SIZE = 1024 * 1024; // 1MB — khớp với giới hạn ở backend
 
+// ⚠️ THAY bằng SITE KEY thật của bạn (site key là công khai, an toàn để đặt trực tiếp ở đây).
+// Site key phải khớp với domain đã đăng ký trên Google reCAPTCHA (clbsaomaiag.com).
+const RECAPTCHA_SITE_KEY = "6LenM8otAAAAAPL47H5gyb0OF6Wnrtn58gTW87Xs";
+
+/* Chạy reCAPTCHA v3 ngầm (không hiện gì cho người dùng), trả về token hoặc null nếu lỗi/chưa cấu hình */
+function getRecaptchaToken(action = "login") {
+  return new Promise((resolve) => {
+    if (!RECAPTCHA_SITE_KEY || RECAPTCHA_SITE_KEY === "YOUR_RECAPTCHA_V3_SITE_KEY" || !window.grecaptcha) {
+      resolve(null);
+      return;
+    }
+    window.grecaptcha.ready(() => {
+      window.grecaptcha
+        .execute(RECAPTCHA_SITE_KEY, { action })
+        .then(resolve)
+        .catch(() => resolve(null));
+    });
+  });
+}
+
 function normalizeVN(s) {
   return (s || "")
     .toLowerCase()
@@ -110,7 +130,9 @@ async function apiPostJSON(path, body) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || JSON.stringify(err) || `POST ${path} thất bại`);
+    const e = new Error(err.detail || JSON.stringify(err) || `POST ${path} thất bại`);
+    Object.assign(e, err); // giữ lại các trường phụ (vd captcha_required, captcha_question)
+    throw e;
   }
   return res.json();
 }
@@ -458,8 +480,8 @@ export default function App() {
     })();
   }, [token]);
 
-  async function login(username, password) {
-    const res = await apiPostJSON("/auth/login/", { username, password });
+  async function login(username, password, recaptchaToken) {
+    const res = await apiPostJSON("/auth/login/", { username, password, recaptcha_token: recaptchaToken });
     localStorage.setItem("tt_token", res.token);
     setToken(res.token);
     setCurrentUser({ id: res.id, username: res.username, role: res.role, player_id: res.player_id, photo: res.photo });
@@ -2180,6 +2202,7 @@ function ChangePasswordModal({ onClose, onTokenUpdated }) {
 function LoginModal({ onClose, onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [needSecurity, setNeedSecurity] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -2187,10 +2210,12 @@ function LoginModal({ onClose, onLogin }) {
     e.preventDefault();
     setError(""); setLoading(true);
     try {
-      await onLogin(username, password);
+      const token = needSecurity ? await getRecaptchaToken("login") : null;
+      await onLogin(username, password, token);
       onClose();
     } catch (err) {
       setError(err.message || "Đăng nhập thất bại.");
+      if (err.captcha_required) setNeedSecurity(true);
     }
     setLoading(false);
   }
@@ -2213,10 +2238,18 @@ function LoginModal({ onClose, onLogin }) {
         <Field label="Mật khẩu">
           <input type="password" style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} required />
         </Field>
+        {needSecurity && (
+          <div style={{ fontSize: 12, color: C.muted }}>
+            Hệ thống đang xác minh bảo mật (reCAPTCHA) do có nhiều lần đăng nhập sai gần đây.
+          </div>
+        )}
         {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
         <div className="flex gap-2" style={{ marginTop: 4 }}>
           <button type="submit" style={btnPrimary} disabled={loading}>{loading ? "Đang đăng nhập…" : "Đăng nhập"}</button>
           <button type="button" style={btnGhost} onClick={onClose}>Huỷ</button>
+        </div>
+        <div style={{ fontSize: 10.5, color: C.muted }}>
+          Trang này được bảo vệ bởi reCAPTCHA. Áp dụng <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer" style={{ color: C.muted }}>Chính sách bảo mật</a> và <a href="https://policies.google.com/terms" target="_blank" rel="noreferrer" style={{ color: C.muted }}>Điều khoản dịch vụ</a> của Google.
         </div>
       </form>
     </div>

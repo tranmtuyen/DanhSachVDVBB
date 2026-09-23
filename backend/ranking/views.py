@@ -1,7 +1,13 @@
+import json
+import urllib.parse
+import urllib.request
+
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils import timezone
 from rest_framework import permissions, viewsets
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action, api_view, permission_classes
@@ -9,12 +15,40 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from . import services
-from .models import Match, Player, PointHistory, Tournament, TournamentResult
+from .models import LoginAttempt, Match, Player, PointHistory, Tournament, TournamentResult
 from .serializers import (
     MatchCreateSerializer, MatchSerializer, MatchUpdateSerializer, PlayerSerializer,
     PointHistorySerializer, ResultCreateSerializer, ResultSerializer,
     TournamentSerializer, UserSerializer,
 )
+
+RECAPTCHA_THRESHOLD = 5  # Số lần sai liên tiếp trước khi bắt xác minh reCAPTCHA
+RECAPTCHA_RESET_MINUTES = 30  # Sau khoảng thời gian này không có lần sai mới, tự đặt lại bộ đếm
+RECAPTCHA_SCORE_MIN = 0.5  # Điểm reCAPTCHA v3 tối thiểu (0.0 = chắc chắn bot, 1.0 = chắc chắn người)
+
+
+def _verify_recaptcha(token, remote_ip=None):
+    """Gọi API siteverify của Google để kiểm tra token reCAPTCHA v3 và điểm số."""
+    secret = getattr(settings, "RECAPTCHA_SECRET_KEY", "")
+    if not secret:
+        # Chưa cấu hình secret key ở server — không chặn đăng nhập (tránh tự khoá cả hệ thống nếu quên cấu hình).
+        return True
+    if not token:
+        return False
+    data = {"secret": secret, "response": token}
+    if remote_ip:
+        data["remoteip"] = remote_ip
+    try:
+        req = urllib.request.Request(
+            "https://www.google.com/recaptcha/api/siteverify",
+            data=urllib.parse.urlencode(data).encode("utf-8"),
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return False
+    return bool(result.get("success")) and float(result.get("score", 0)) >= RECAPTCHA_SCORE_MIN
 
 
 def _role_permission(*allowed_roles):
@@ -42,9 +76,41 @@ IsAdminOrManagerOrScorer = _role_permission("admin", "manager", "scorer")
 def login_view(request):
     username = request.data.get("username", "")
     password = request.data.get("password", "")
+    recaptcha_token = request.data.get("recaptcha_token", "")
+    uname_key = username.strip().lower()
+
+    attempt = None
+    need_recaptcha = False
+    if uname_key:
+        attempt, _ = LoginAttempt.objects.get_or_create(username=uname_key)
+        # Tự đặt lại bộ đếm nếu đã lâu không có lần sai mới (tránh khoá "vĩnh viễn")
+        if attempt.failed_count > 0 and (timezone.now() - attempt.updated_at).total_seconds() > RECAPTCHA_RESET_MINUTES * 60:
+            attempt.failed_count = 0
+
+        if attempt.failed_count >= RECAPTCHA_THRESHOLD:
+            need_recaptcha = True
+            if not _verify_recaptcha(recaptcha_token, request.META.get("REMOTE_ADDR")):
+                attempt.save()  # lưu lại việc tự đặt lại bộ đếm ở trên (nếu có), dù chưa qua được reCAPTCHA
+                return Response(
+                    {"detail": "Xác minh bảo mật không thành công, vui lòng thử lại.", "captcha_required": True},
+                    status=400,
+                )
+
     user = authenticate(request, username=username, password=password)
     if not user:
+        if attempt is not None:
+            attempt.failed_count += 1
+            if attempt.failed_count >= RECAPTCHA_THRESHOLD:
+                need_recaptcha = True
+            attempt.save()
+            extra = {"captcha_required": True} if need_recaptcha else {}
+            return Response({"detail": "Sai tên đăng nhập hoặc mật khẩu.", **extra}, status=400)
         return Response({"detail": "Sai tên đăng nhập hoặc mật khẩu."}, status=400)
+
+    if attempt is not None:
+        attempt.failed_count = 0
+        attempt.save()
+
     token, _ = Token.objects.get_or_create(user=user)
     player = services.get_linked_player(user)
     photo = request.build_absolute_uri(player.photo.url) if player and player.photo else None

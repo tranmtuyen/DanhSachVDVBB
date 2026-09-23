@@ -3,7 +3,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 
 from . import services
-from .models import Match, Player, PointHistory, Tournament, TournamentResult
+from .models import LoginAttempt, Match, Player, PointHistory, Tournament, TournamentResult
 
 
 @admin.register(Player)
@@ -129,3 +129,10 @@ class PointHistoryAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(LoginAttempt)
+class LoginAttemptAdmin(admin.ModelAdmin):
+    list_display = ("username", "failed_count", "updated_at")
+    search_fields = ("username",)
+    ordering = ("-updated_at",)
