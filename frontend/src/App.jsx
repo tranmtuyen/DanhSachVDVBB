@@ -845,6 +845,7 @@ export default function App() {
               players={players}
               matches={matches}
               tournaments={tournaments}
+              results={results}
               history={history}
               onChangePassword={() => setShowChangePassword(true)}
               onChangeMyPhoto={changeMyPhoto}
@@ -1369,13 +1370,15 @@ function PlayerDetail({ player, history, matches, tournaments, results, allPlaye
 }
 
 /* ---------- Trang Hồ sơ (Profile) ---------- */
-function ProfileTab({ currentUser, players, matches, tournaments, history, onChangePassword, onChangeMyPhoto }) {
+function ProfileTab({ currentUser, players, matches, tournaments, results, history, onChangePassword, onChangeMyPhoto }) {
   const player = currentUser.player_id ? players.find((p) => p.id === currentUser.player_id) : null;
   const [historyPage, setHistoryPage] = useState(1);
   const HISTORY_PAGE_SIZE = 20;
   const [showPhotoLightbox, setShowPhotoLightbox] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState("");
+  const [detailTab, setDetailTab] = useState("history");
+  const myResults = player ? (results || []).filter((r) => r.player === player.id || (r.teammates || []).includes(player.id)) : [];
 
   const sortedAll = useMemo(() => [...players].sort((a, b) => b.rating - a.rating), [players]);
   const rankNum = player ? sortedAll.findIndex((p) => p.id === player.id) + 1 : null;
@@ -1524,10 +1527,18 @@ function ProfileTab({ currentUser, players, matches, tournaments, history, onCha
           )}
 
           <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14 }}>
-            <div style={{ padding: "12px 16px", fontWeight: 700, borderBottom: `1px solid ${C.line}` }}>Lịch sử điểm</div>
-            {playerHistory.length === 0 ? (
-              <div style={{ padding: 16 }}><EmptyState text="Chưa có lịch sử điểm." /></div>
-            ) : (
+            <div style={{ padding: "10px 16px", borderBottom: `1px solid ${C.line}` }} className="flex gap-2">
+              <button type="button" onClick={() => setDetailTab("history")} style={{ ...(detailTab === "history" ? btnPrimary : btnGhost), padding: "6px 14px", fontSize: 13 }}>
+                Lịch sử thi đấu
+              </button>
+              <button type="button" onClick={() => setDetailTab("achievements")} style={{ ...(detailTab === "achievements" ? btnPrimary : btnGhost), padding: "6px 14px", fontSize: 13 }}>
+                Thành tích
+              </button>
+            </div>
+            {detailTab === "history" ? (
+              playerHistory.length === 0 ? (
+                <div style={{ padding: 16 }}><EmptyState text="Chưa có lịch sử điểm." /></div>
+              ) : (
               <>
                 {playerHistory.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE).map((h, i, arr) => {
                   const linkedMatch = h.match ? matches.find((m) => m.id === h.match) : null;
@@ -1558,6 +1569,40 @@ function ProfileTab({ currentUser, players, matches, tournaments, history, onCha
                 })}
                 <Pagination page={historyPage} totalPages={Math.max(1, Math.ceil(playerHistory.length / HISTORY_PAGE_SIZE))} onChange={setHistoryPage} />
               </>
+              )
+            ) : (
+              myResults.length === 0 ? (
+                <div style={{ padding: 16 }}><EmptyState text="Chưa có thành tích nào." /></div>
+              ) : (
+                myResults.map((r, i) => {
+                  const tournament = tournaments.find((tt) => tt.id === r.tournament);
+                  const others = [r.player, ...(r.teammates || [])].filter((id) => id !== player.id);
+                  const otherNames = others.map((id) => players.find((p) => p.id === id)?.name).filter(Boolean);
+                  return (
+                    <div
+                      key={r.id}
+                      style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px",
+                        borderBottom: i < myResults.length - 1 ? `1px solid ${C.line}` : "none", fontSize: 13.5, flexWrap: "wrap", gap: 6,
+                      }}
+                    >
+                      <div>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px", marginRight: 6 }}>
+                          {CONTENT_LABEL[r.content_type]}
+                        </span>
+                        <span style={{ fontWeight: 600 }}>{BONUS_LABEL[r.placement]}</span>
+                        <span style={{ color: C.muted }}> — {tournament?.name || "Giải đấu"}</span>
+                        {otherNames.length > 0 && <span style={{ color: C.muted }}> (cùng {otherNames.join(" & ")})</span>}
+                      </div>
+                      {r.bonus_applied ? (
+                        <span className="tabular" style={{ color: "#1E8E52", fontWeight: 700, fontSize: 12.5 }}>+{r.bonus}</span>
+                      ) : (
+                        <span style={{ color: C.muted, fontSize: 12 }}>Không cộng điểm</span>
+                      )}
+                    </div>
+                  );
+                })
+              )
             )}
           </div>
         </>
@@ -1864,7 +1909,12 @@ function TeammatesPicker({ contentType, players, mainPlayerId, teammateIds, setT
   if (contentType === "don") return null;
 
   function setAt(i, val) {
-    setTeammateIds((ids) => ids.map((x, idx) => (idx === i ? val : x)));
+    setTeammateIds((ids) => {
+      const next = [...ids];
+      while (next.length <= i) next.push("");
+      next[i] = val;
+      return next;
+    });
   }
   function addSlot() {
     setTeammateIds((ids) => [...ids, ""]);
