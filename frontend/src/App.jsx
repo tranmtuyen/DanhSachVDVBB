@@ -69,7 +69,7 @@ const MAX_PHOTO_SIZE = 1024 * 1024; // 1MB — khớp với giới hạn ở bac
 
 // ⚠️ THAY bằng SITE KEY thật của bạn (site key là công khai, an toàn để đặt trực tiếp ở đây).
 // Site key phải khớp với domain đã đăng ký trên Google reCAPTCHA (clbsaomaiag.com).
-const RECAPTCHA_SITE_KEY = "YOUR_RECAPTCHA_V3_SITE_KEY";
+const RECAPTCHA_SITE_KEY = "6LenM8otAAAAAPL47H5gyb0OF6Wnrtn58gTW87Xs";
 
 /* Chạy reCAPTCHA v3 ngầm (không hiện gì cho người dùng), trả về token hoặc null nếu lỗi/chưa cấu hình */
 function getRecaptchaToken(action = "login") {
