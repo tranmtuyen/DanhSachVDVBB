@@ -69,7 +69,7 @@ const MAX_PHOTO_SIZE = 1024 * 1024; // 1MB — khớp với giới hạn ở bac
 
 // ⚠️ THAY bằng SITE KEY thật của bạn (site key là công khai, an toàn để đặt trực tiếp ở đây).
 // Site key phải khớp với domain đã đăng ký trên Google reCAPTCHA (clbsaomaiag.com).
-const RECAPTCHA_SITE_KEY = "6LenM8otAAAAAPL47H5gyb0OF6Wnrtn58gTW87Xs";
+const RECAPTCHA_SITE_KEY = "YOUR_RECAPTCHA_V3_SITE_KEY";
 
 /* Chạy reCAPTCHA v3 ngầm (không hiện gì cho người dùng), trả về token hoặc null nếu lỗi/chưa cấu hình */
 function getRecaptchaToken(action = "login") {
@@ -2321,6 +2321,7 @@ function UsersTab({ players, onCreateUser, onUpdateRole, onResetPassword }) {
       {showAdd && (
         <AddUserModal
           players={players}
+          linkedPlayerIds={(users || []).filter((u) => u.player).map((u) => u.player)}
           onClose={() => setShowAdd(false)}
           onCreate={async (payload) => { await onCreateUser(payload); await load(); }}
         />
@@ -2354,7 +2355,7 @@ function UsersTab({ players, onCreateUser, onUpdateRole, onResetPassword }) {
 }
 
 /* ---------- Popup thêm user mới ---------- */
-function AddUserModal({ players, onClose, onCreate }) {
+function AddUserModal({ players, linkedPlayerIds, onClose, onCreate }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("sm@123456");
   const [newRole, setNewRole] = useState("user");
@@ -2399,7 +2400,7 @@ function AddUserModal({ players, onClose, onCreate }) {
           </select>
         </Field>
         <Field label="Tên VĐV (tuỳ chọn — gắn tài khoản với 1 VĐV)">
-          <PlayerCombobox players={players} value={playerId} onChange={setPlayerId} placeholder="— Không gắn VĐV —" />
+          <PlayerCombobox players={players} value={playerId} onChange={setPlayerId} placeholder="— Không gắn VĐV —" excludeIds={linkedPlayerIds} />
         </Field>
         {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
         <div className="flex gap-2" style={{ marginTop: 4 }}>
