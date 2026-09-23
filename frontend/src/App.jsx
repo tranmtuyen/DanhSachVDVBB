@@ -69,20 +69,32 @@ const MAX_PHOTO_SIZE = 1024 * 1024; // 1MB — khớp với giới hạn ở bac
 
 // ⚠️ THAY bằng SITE KEY thật của bạn (site key là công khai, an toàn để đặt trực tiếp ở đây).
 // Site key phải khớp với domain đã đăng ký trên Google reCAPTCHA (clbsaomaiag.com).
-const RECAPTCHA_SITE_KEY = "6LenM8otAAAAAPL47H5gyb0OF6Wnrtn58gTW87Xs";
+const RECAPTCHA_SITE_KEY = "YOUR_RECAPTCHA_V3_SITE_KEY";
 
 /* Chạy reCAPTCHA v3 ngầm (không hiện gì cho người dùng), trả về token hoặc null nếu lỗi/chưa cấu hình */
 function getRecaptchaToken(action = "login") {
   return new Promise((resolve) => {
-    if (!RECAPTCHA_SITE_KEY || RECAPTCHA_SITE_KEY === "YOUR_RECAPTCHA_V3_SITE_KEY" || !window.grecaptcha) {
+    if (!RECAPTCHA_SITE_KEY || RECAPTCHA_SITE_KEY === "YOUR_RECAPTCHA_V3_SITE_KEY") {
+      console.warn("[reCAPTCHA] Chưa cấu hình RECAPTCHA_SITE_KEY trong App.jsx.");
+      resolve(null);
+      return;
+    }
+    if (!window.grecaptcha) {
+      console.warn("[reCAPTCHA] window.grecaptcha chưa tồn tại — script chưa tải được. Kiểm tra script trong index.html.");
       resolve(null);
       return;
     }
     window.grecaptcha.ready(() => {
       window.grecaptcha
         .execute(RECAPTCHA_SITE_KEY, { action })
-        .then(resolve)
-        .catch(() => resolve(null));
+        .then((token) => {
+          console.log("[reCAPTCHA] Lấy token thành công, độ dài:", token?.length);
+          resolve(token);
+        })
+        .catch((err) => {
+          console.error("[reCAPTCHA] execute() lỗi:", err);
+          resolve(null);
+        });
     });
   });
 }
