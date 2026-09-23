@@ -107,6 +107,13 @@ class PlayerSerializer(serializers.ModelSerializer):
         return data
 
 
+class PlayerPhotoSerializer(serializers.ModelSerializer):
+    """Chỉ dùng cho việc tự đổi ảnh (endpoint /auth/my-photo/) — thừa hưởng validator giới hạn 1MB từ model."""
+    class Meta:
+        model = Player
+        fields = ["photo"]
+
+
 class TournamentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tournament

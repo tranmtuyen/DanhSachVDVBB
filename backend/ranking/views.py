@@ -17,7 +17,7 @@ from rest_framework.response import Response
 from . import services
 from .models import LoginAttempt, Match, Player, PointHistory, Tournament, TournamentResult
 from .serializers import (
-    MatchCreateSerializer, MatchSerializer, MatchUpdateSerializer, PlayerSerializer,
+    MatchCreateSerializer, MatchSerializer, MatchUpdateSerializer, PlayerPhotoSerializer, PlayerSerializer,
     PointHistorySerializer, ResultCreateSerializer, ResultSerializer,
     TournamentSerializer, UserSerializer,
 )
@@ -136,6 +136,21 @@ def me_view(request):
         "id": request.user.id, "username": request.user.username, "role": services.get_role(request.user),
         "player_id": player.id if player else None, "photo": photo,
     })
+
+
+@api_view(["PATCH"])
+@permission_classes([permissions.IsAuthenticated])
+def update_my_photo_view(request):
+    """Cho phép tài khoản đã gắn VĐV tự đổi ảnh VĐV của mình (vẫn qua đúng validator giới hạn 1MB)."""
+    player = services.get_linked_player(request.user)
+    if not player:
+        return Response({"detail": "Tài khoản của bạn chưa được gắn với VĐV nào."}, status=400)
+    if "photo" not in request.FILES:
+        return Response({"detail": "Cần chọn ảnh để tải lên."}, status=400)
+    serializer = PlayerPhotoSerializer(player, data={"photo": request.FILES["photo"]}, partial=True)
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+    return Response(PlayerSerializer(player, context={"request": request}).data)
 
 
 @api_view(["POST"])

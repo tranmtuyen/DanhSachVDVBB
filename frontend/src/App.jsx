@@ -612,6 +612,13 @@ export default function App() {
     return apiPatchJSON(`/users/${userId}/`, { password });
   }
 
+  async function changeMyPhoto(photoFile) {
+    const fd = new FormData();
+    fd.append("photo", photoFile);
+    await apiForm("/auth/my-photo/", "PATCH", fd);
+    await refreshAll();
+  }
+
   const canManagePlayers = role === "admin";
   const canManageTournaments = role === "admin" || role === "manager";
   const canEnterResults = role === "admin" || role === "manager";
@@ -824,6 +831,7 @@ export default function App() {
               tournaments={tournaments}
               history={history}
               onChangePassword={() => setShowChangePassword(true)}
+              onChangeMyPhoto={changeMyPhoto}
             />
           )}
         </div>
@@ -1301,10 +1309,13 @@ function PlayerDetail({ player, history, matches, tournaments, allPlayers, canMa
 }
 
 /* ---------- Trang Hồ sơ (Profile) ---------- */
-function ProfileTab({ currentUser, players, matches, tournaments, history, onChangePassword }) {
+function ProfileTab({ currentUser, players, matches, tournaments, history, onChangePassword, onChangeMyPhoto }) {
   const player = currentUser.player_id ? players.find((p) => p.id === currentUser.player_id) : null;
   const [historyPage, setHistoryPage] = useState(1);
   const HISTORY_PAGE_SIZE = 20;
+  const [showPhotoLightbox, setShowPhotoLightbox] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState("");
 
   const sortedAll = useMemo(() => [...players].sort((a, b) => b.rating - a.rating), [players]);
   const rankNum = player ? sortedAll.findIndex((p) => p.id === player.id) + 1 : null;
@@ -1351,6 +1362,24 @@ function ProfileTab({ currentUser, players, matches, tournaments, history, onCha
     return { selfWon, oppNames, date: last.date };
   }, [finishedMatches, player, players]);
 
+  async function onPickMyPhoto(e) {
+    const file = e.target.files?.[0] || null;
+    e.target.value = "";
+    if (!file) return;
+    if (file.size > MAX_PHOTO_SIZE) {
+      setPhotoError("Ảnh vượt quá 1MB, vui lòng chọn ảnh nhỏ hơn.");
+      return;
+    }
+    setPhotoError("");
+    setUploadingPhoto(true);
+    try {
+      await onChangeMyPhoto(file);
+    } catch (err) {
+      setPhotoError(err.message || "Có lỗi khi tải ảnh lên.");
+    }
+    setUploadingPhoto(false);
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {player && (
@@ -1358,7 +1387,25 @@ function ProfileTab({ currentUser, players, matches, tournaments, history, onCha
           <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 20 }}>
             <div className="flex items-center justify-between" style={{ flexWrap: "wrap", gap: 12 }}>
               <div className="flex items-center gap-3">
-                <Avatar player={player} size={56} />
+                <div style={{ position: "relative", flexShrink: 0 }}>
+                  <div
+                    onClick={() => { if (photoUrl(player)) setShowPhotoLightbox(true); }}
+                    style={{ cursor: photoUrl(player) ? "pointer" : "default" }}
+                  >
+                    <Avatar player={player} size={56} />
+                  </div>
+                  <label
+                    title="Đổi ảnh"
+                    style={{
+                      position: "absolute", bottom: -2, right: -2, width: 22, height: 22, borderRadius: "50%",
+                      background: C.accent, border: `2px solid ${C.surface}`, display: "flex", alignItems: "center",
+                      justifyContent: "center", cursor: "pointer", fontSize: 11,
+                    }}
+                  >
+                    ✎
+                    <input type="file" accept="image/*" onChange={onPickMyPhoto} style={{ display: "none" }} disabled={uploadingPhoto} />
+                  </label>
+                </div>
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 700, fontFamily: FONT_DISPLAY }}>
                     <NameWithNickname name={player.name} nickname={player.nickname} />
@@ -1366,6 +1413,8 @@ function ProfileTab({ currentUser, players, matches, tournaments, history, onCha
                   <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>
                     #{rankNum} / {players.length} VĐV
                   </div>
+                  {uploadingPhoto && <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>Đang tải ảnh lên…</div>}
+                  {photoError && <div style={{ fontSize: 11.5, color: C.bad, marginTop: 2 }}>{photoError}</div>}
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -1466,6 +1515,10 @@ function ProfileTab({ currentUser, players, matches, tournaments, history, onCha
           <button style={btnGhost} onClick={onChangePassword}>Đổi mật khẩu</button>
         </div>
       </div>
+
+      {showPhotoLightbox && player && (
+        <PhotoLightbox url={photoUrl(player)} alt={player.name} onClose={() => setShowPhotoLightbox(false)} />
+      )}
     </div>
   );
 }
