@@ -1441,7 +1441,8 @@ function ProfileTab({ currentUser, players, matches, tournaments, results, histo
     const oppIds = inA ? [last.player_b, last.player_b2] : [last.player_a, last.player_a2];
     const selfNames = selfIds.filter(Boolean).map((id) => players.find((p) => p.id === id)?.name).filter(Boolean);
     const oppNames = oppIds.filter(Boolean).map((id) => players.find((p) => p.id === id)?.name).filter(Boolean);
-    return { selfWon, isDoubles, selfNames, oppNames, date: last.date };
+    const scoreText = inA ? `${last.sets_a}–${last.sets_b}` : `${last.sets_b}–${last.sets_a}`;
+    return { selfWon, isDoubles, selfNames, oppNames, scoreText, date: last.date };
   }, [finishedMatches, player, players]);
 
   async function onPickMyPhoto(e) {
@@ -1531,7 +1532,7 @@ function ProfileTab({ currentUser, players, matches, tournaments, results, histo
                         color: lastMatchInfo.selfWon ? C.pillUpText : C.pillDownText,
                       }}
                     >
-                      {lastMatchInfo.selfWon ? "Thắng" : "Thua"}
+                      {lastMatchInfo.selfWon ? "Thắng" : "Thua"} {lastMatchInfo.scoreText}
                     </span>
                   </div>
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: C.nameColor, marginTop: 5 }}>{lastMatchInfo.selfNames.join(" & ")}</div>
