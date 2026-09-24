@@ -1699,7 +1699,8 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
     const contextLabel = m.tournament
       ? (data.tournaments?.find((t) => t.id === m.tournament)?.name || "Giải đấu")
       : "Giao hữu";
-    perspective = { selfLabel: isASide ? labelA : labelB, oppLabel: isASide ? labelB : labelA, selfWon, scoreText, contextLabel, isASide };
+    const selfDelta = isASide ? m.delta_a : m.delta_b;
+    perspective = { selfLabel: isASide ? labelA : labelB, oppLabel: isASide ? labelB : labelA, selfWon, scoreText, contextLabel, isASide, selfDelta };
   }
 
   // Xác định bên trái/phải hiển thị: theo góc nhìn (self bên trái) nếu có, mặc định A bên trái — dùng chung cho đơn & đôi
@@ -1778,8 +1779,8 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
   }
 
   return (
-    <div className="tt-match-row" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: `1px solid ${C.line}`, gap: 12 }}>
-      <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+    <div className="tt-match-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: `1px solid ${C.line}`, gap: 12 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div className="flex items-center gap-2" style={{ width: "100%" }}>
           <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px" }}>
             {isDoubles ? "ĐÔI" : "ĐƠN"}
@@ -1800,6 +1801,15 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
               >
                 {perspective.selfWon ? "Thắng" : "Thua"}
               </span>
+              <span
+                style={{
+                  fontSize: 11, fontWeight: 700, padding: "1px 8px", borderRadius: 999, marginRight: 2,
+                  background: isDoubles ? C.line : (perspective.selfWon ? C.pillUpBg : C.pillDownBg),
+                  color: isDoubles ? C.muted : (perspective.selfWon ? C.pillUpText : C.pillDownText),
+                }}
+              >
+                {isDoubles ? "Không tính điểm" : `${perspective.selfDelta >= 0 ? "+" : "-"}${Math.abs(perspective.selfDelta)}`}
+              </span>
               <MatchTeamsGrid
                 leftP1={leftPlayers[0]} leftP2={leftPlayers[1]} rightP1={rightPlayers[0]} rightP2={rightPlayers[1]}
                 middle={perspective.scoreText}
@@ -1815,9 +1825,9 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
         {showDate && <div style={{ fontSize: 12, color: C.muted }}>{fmtDate(m.date)}</div>}
         {perspective && <div style={{ fontSize: 11.5, color: C.muted, opacity: 0.75, marginTop: 1 }}>{perspective.contextLabel}</div>}
       </div>
-      <div className="tt-match-right flex items-center gap-3" style={{ marginLeft: "auto", flexShrink: 0 }}>
+      <div className="tt-match-right flex items-center gap-3">
         <span className="tabular" style={{ color: C.muted }}>
-          {m.status === "scheduled" ? "" : isDoubles ? "Không tính điểm" : <>{m.delta_a >= 0 ? "+" : ""}{m.delta_a} / {m.delta_b >= 0 ? "+" : ""}{m.delta_b}</>}
+          {perspective || m.status === "scheduled" ? "" : isDoubles ? "Không tính điểm" : <>{m.delta_a >= 0 ? "+" : ""}{m.delta_a} / {m.delta_b >= 0 ? "+" : ""}{m.delta_b}</>}
         </span>
         {canManage && (
           <div className="flex gap-1">
