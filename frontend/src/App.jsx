@@ -689,18 +689,6 @@ export default function App() {
           .tt-tg-4 { order: 5; }
           .tt-lb-th, .tt-lb-td { padding: 8px 8px !important; font-size: 12.5px !important; }
         }
-        /* Trận đôi cần nhiều chỗ hơn (2 tên mỗi bên) — xếp dọc sớm hơn để không bị chồng chữ dù ở màn hình lớn */
-        @media (max-width: 900px) {
-          .tt-match-row-doubles { flex-direction: column; align-items: stretch !important; gap: 6px !important; }
-          .tt-match-row-doubles .tt-match-right { width: 100%; justify-content: space-between !important; }
-          .tt-match-row-doubles .tt-teams-grid { grid-template-columns: 1fr !important; row-gap: 3px !important; }
-          .tt-match-row-doubles .tt-teams-grid > div { grid-column: 1 !important; grid-row: auto !important; text-align: center !important; }
-          .tt-match-row-doubles .tt-tg-1 { order: 1; }
-          .tt-match-row-doubles .tt-tg-3 { order: 2; }
-          .tt-match-row-doubles .tt-tg-mid { order: 3; margin: 3px 0; }
-          .tt-match-row-doubles .tt-tg-2 { order: 4; }
-          .tt-match-row-doubles .tt-tg-4 { order: 5; }
-        }
         .tt-sidebar { width: 232px; flex-shrink: 0; transition: width 160ms ease; }
         .tt-sidebar-label { display: inline; }
         .tt-mobile-toggle { display: none; }
@@ -1790,8 +1778,8 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
   }
 
   return (
-    <div className={`tt-match-row${isDoubles ? " tt-match-row-doubles" : ""}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: `1px solid ${C.line}`, gap: 12 }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
+    <div className="tt-match-row" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", padding: "8px 0", fontSize: 13.5, borderBottom: `1px solid ${C.line}`, gap: 12 }}>
+      <div style={{ flex: "1 1 260px", minWidth: 0 }}>
         <div className="flex items-center gap-2" style={{ width: "100%" }}>
           <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px" }}>
             {isDoubles ? "ĐÔI" : "ĐƠN"}
@@ -1827,7 +1815,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
         {showDate && <div style={{ fontSize: 12, color: C.muted }}>{fmtDate(m.date)}</div>}
         {perspective && <div style={{ fontSize: 11.5, color: C.muted, opacity: 0.75, marginTop: 1 }}>{perspective.contextLabel}</div>}
       </div>
-      <div className="tt-match-right flex items-center gap-3">
+      <div className="tt-match-right flex items-center gap-3" style={{ marginLeft: "auto", flexShrink: 0 }}>
         <span className="tabular" style={{ color: C.muted }}>
           {m.status === "scheduled" ? "" : isDoubles ? "Không tính điểm" : <>{m.delta_a >= 0 ? "+" : ""}{m.delta_a} / {m.delta_b >= 0 ? "+" : ""}{m.delta_b}</>}
         </span>
