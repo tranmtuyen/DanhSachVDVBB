@@ -1118,6 +1118,42 @@ function PlayersTab({ players, canManage, onAdd, onSelect }) {
   );
 }
 
+/* ---------- Dòng Thành tích (dùng chung cho tab Thành tích ở PlayerDetail và Hồ sơ) ---------- */
+function AchievementRow({ result: r, tournament, otherNames, isLast }) {
+  return (
+    <div
+      style={{
+        display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "12px 16px",
+        borderBottom: isLast ? "none" : `1px solid ${C.line}`, gap: 10,
+      }}
+    >
+      <div>
+        <div className="flex items-baseline gap-2">
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.3 }}>
+            {CONTENT_LABEL[r.content_type]}
+          </span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: C.ink, fontFamily: FONT_DISPLAY }}>{BONUS_LABEL[r.placement]}</span>
+        </div>
+        <div className="flex items-baseline gap-2" style={{ marginTop: 2 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.nameColor }}>{tournament?.name || "Giải đấu"}</span>
+          {tournament?.date && <span style={{ fontSize: 12, color: C.muted }}>{fmtDate(tournament.date)}</span>}
+        </div>
+        {otherNames.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 11, color: C.muted }}>Đồng đội</div>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: C.nameColor }}>{otherNames.join(", ")}</div>
+          </div>
+        )}
+      </div>
+      {r.bonus_applied ? (
+        <span className="tabular" style={{ color: "#1E8E52", fontWeight: 700, fontSize: 12.5, flexShrink: 0 }}>+{r.bonus}</span>
+      ) : (
+        <span style={{ color: C.muted, fontSize: 12, flexShrink: 0 }}>Không cộng điểm</span>
+      )}
+    </div>
+  );
+}
+
 function PlayerDetail({ player, history, matches, tournaments, results, allPlayers, canManage, canManageMatches, onEdit, onDeletePlayer, onEditMatch, onDeleteMatch, onBack }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(player.name);
@@ -1335,27 +1371,7 @@ function PlayerDetail({ player, history, matches, tournaments, results, allPlaye
               const others = [r.player, ...(r.teammates || [])].filter((id) => id !== player.id);
               const otherNames = others.map((id) => allPlayers.find((p) => p.id === id)?.name).filter(Boolean);
               return (
-                <div
-                  key={r.id}
-                  style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px",
-                    borderBottom: i < myResults.length - 1 ? `1px solid ${C.line}` : "none", fontSize: 13.5, flexWrap: "wrap", gap: 6,
-                  }}
-                >
-                  <div>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px", marginRight: 6 }}>
-                      {CONTENT_LABEL[r.content_type]}
-                    </span>
-                    <span style={{ fontWeight: 600 }}>{BONUS_LABEL[r.placement]}</span>
-                    <span style={{ color: C.muted }}> — {tournament?.name || "Giải đấu"}</span>
-                    {otherNames.length > 0 && <span style={{ color: C.muted }}> (cùng {otherNames.join(" & ")})</span>}
-                  </div>
-                  {r.bonus_applied ? (
-                    <span className="tabular" style={{ color: "#1E8E52", fontWeight: 700, fontSize: 12.5 }}>+{r.bonus}</span>
-                  ) : (
-                    <span style={{ color: C.muted, fontSize: 12 }}>Không cộng điểm</span>
-                  )}
-                </div>
+                <AchievementRow key={r.id} result={r} tournament={tournament} otherNames={otherNames} isLast={i === myResults.length - 1} />
               );
             })
           )
@@ -1418,11 +1434,14 @@ function ProfileTab({ currentUser, players, matches, tournaments, results, histo
   const lastMatchInfo = useMemo(() => {
     if (!player || finishedMatches.length === 0) return null;
     const last = [...finishedMatches].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+    const isDoubles = last.mode === "doi";
     const inA = last.player_a === player.id || last.player_a2 === player.id;
     const selfWon = (inA && last.winner_side === "A") || (!inA && last.winner_side === "B");
+    const selfIds = inA ? [last.player_a, last.player_a2] : [last.player_b, last.player_b2];
     const oppIds = inA ? [last.player_b, last.player_b2] : [last.player_a, last.player_a2];
-    const oppNames = oppIds.filter(Boolean).map((id) => players.find((p) => p.id === id)?.name).filter(Boolean).join(" & ");
-    return { selfWon, oppNames, date: last.date };
+    const selfNames = selfIds.filter(Boolean).map((id) => players.find((p) => p.id === id)?.name).filter(Boolean);
+    const oppNames = oppIds.filter(Boolean).map((id) => players.find((p) => p.id === id)?.name).filter(Boolean);
+    return { selfWon, isDoubles, selfNames, oppNames, date: last.date };
   }, [finishedMatches, player, players]);
 
   async function onPickMyPhoto(e) {
@@ -1498,13 +1517,27 @@ function ProfileTab({ currentUser, players, matches, tournaments, results, histo
               </div>
               <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>Thắng–Thua ({winRate}%)</div>
             </div>
-            <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "16px 14px", textAlign: "center" }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "14px 10px", textAlign: "center" }}>
               {lastMatchInfo ? (
                 <>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: lastMatchInfo.selfWon ? C.pillUpText : C.pillDownText }}>
-                    {lastMatchInfo.selfWon ? "Thắng" : "Thua"} vs {lastMatchInfo.oppNames}
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "0.5px 5px" }}>
+                      {lastMatchInfo.isDoubles ? "ĐÔI" : "ĐƠN"}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 10, fontWeight: 700, padding: "0.5px 6px", borderRadius: 999,
+                        background: lastMatchInfo.selfWon ? C.pillUpBg : C.pillDownBg,
+                        color: lastMatchInfo.selfWon ? C.pillUpText : C.pillDownText,
+                      }}
+                    >
+                      {lastMatchInfo.selfWon ? "Thắng" : "Thua"}
+                    </span>
                   </div>
-                  <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>Trận đấu gần nhất · {fmtDate(lastMatchInfo.date)}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.nameColor, marginTop: 5 }}>{lastMatchInfo.selfNames.join(" & ")}</div>
+                  <div style={{ fontSize: 10, color: C.muted }}>vs</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.nameColor }}>{lastMatchInfo.oppNames.join(" & ")}</div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Trận đấu gần nhất · {fmtDate(lastMatchInfo.date)}</div>
                 </>
               ) : (
                 <div style={{ fontSize: 12.5, color: C.muted, paddingTop: 4 }}>Chưa có trận nào</div>
@@ -1579,27 +1612,7 @@ function ProfileTab({ currentUser, players, matches, tournaments, results, histo
                   const others = [r.player, ...(r.teammates || [])].filter((id) => id !== player.id);
                   const otherNames = others.map((id) => players.find((p) => p.id === id)?.name).filter(Boolean);
                   return (
-                    <div
-                      key={r.id}
-                      style={{
-                        display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px",
-                        borderBottom: i < myResults.length - 1 ? `1px solid ${C.line}` : "none", fontSize: 13.5, flexWrap: "wrap", gap: 6,
-                      }}
-                    >
-                      <div>
-                        <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px", marginRight: 6 }}>
-                          {CONTENT_LABEL[r.content_type]}
-                        </span>
-                        <span style={{ fontWeight: 600 }}>{BONUS_LABEL[r.placement]}</span>
-                        <span style={{ color: C.muted }}> — {tournament?.name || "Giải đấu"}</span>
-                        {otherNames.length > 0 && <span style={{ color: C.muted }}> (cùng {otherNames.join(" & ")})</span>}
-                      </div>
-                      {r.bonus_applied ? (
-                        <span className="tabular" style={{ color: "#1E8E52", fontWeight: 700, fontSize: 12.5 }}>+{r.bonus}</span>
-                      ) : (
-                        <span style={{ color: C.muted, fontSize: 12 }}>Không cộng điểm</span>
-                      )}
-                    </div>
+                    <AchievementRow key={r.id} result={r} tournament={tournament} otherNames={otherNames} isLast={i === myResults.length - 1} />
                   );
                 })
               )
