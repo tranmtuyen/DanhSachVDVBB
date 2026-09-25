@@ -15,10 +15,10 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from . import services
-from .models import LoginAttempt, Match, Player, PointHistory, Tournament, TournamentResult
+from .models import LoginAttempt, Match, Player, PointHistory, RankingConfig, Tournament, TournamentResult
 from .serializers import (
     MatchCreateSerializer, MatchSerializer, MatchUpdateSerializer, PlayerPhotoSerializer, PlayerSerializer,
-    PointHistorySerializer, ResultCreateSerializer, ResultSerializer, ResultUpdateSerializer,
+    PointHistorySerializer, RankingConfigSerializer, ResultCreateSerializer, ResultSerializer, ResultUpdateSerializer,
     TournamentSerializer, UserSerializer,
 )
 
@@ -187,6 +187,21 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminStrict]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
+    def destroy(self, request, *args, **kwargs):
+        user = self.get_object()
+        if user.id == request.user.id:
+            raise ValidationError("Không thể tự xóa tài khoản đang đăng nhập.")
+        if services.get_role(user) == "admin":
+            other_admins_exist = any(
+                services.get_role(u) == "admin" for u in User.objects.exclude(id=user.id)
+            )
+            if not other_admins_exist:
+                raise ValidationError("Không thể xóa Quản trị viên cuối cùng.")
+        # UserProfile (nếu có gắn VĐV) sẽ tự bị xóa theo (on_delete=CASCADE trên UserProfile.user),
+        # nhờ đó VĐV được tự động gỡ khỏi tài khoản này — không cần xử lý thêm.
+        user.delete()
+        return Response(status=204)
+
 
 class PlayerViewSet(viewsets.ModelViewSet):
     queryset = Player.objects.all().order_by("-rating")
@@ -353,3 +368,16 @@ class PointHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PointHistory.objects.all().order_by("-created_at")
     serializer_class = PointHistorySerializer
     permission_classes = [permissions.AllowAny]
+
+
+@api_view(["GET", "PATCH"])
+@permission_classes([IsAdminStrict])
+def ranking_config_view(request):
+    """Trang Quản lý điểm (chỉ Quản trị viên): xem/sửa quy tắc tính điểm của CLB."""
+    cfg = RankingConfig.get_solo()
+    if request.method == "PATCH":
+        serializer = RankingConfigSerializer(cfg, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+    return Response(RankingConfigSerializer(cfg).data)

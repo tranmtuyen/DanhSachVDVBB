@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     MatchViewSet, PlayerViewSet, PointHistoryViewSet, ResultViewSet,
     TournamentViewSet, UserViewSet, change_password_view, login_view, logout_view, me_view,
-    update_my_photo_view,
+    ranking_config_view, update_my_photo_view,
 )
 
 router = DefaultRouter()
@@ -21,4 +21,5 @@ urlpatterns = [
     path("auth/me/", me_view),
     path("auth/change-password/", change_password_view),
     path("auth/my-photo/", update_my_photo_view),
+    path("ranking-config/", ranking_config_view),
 ] + router.urls

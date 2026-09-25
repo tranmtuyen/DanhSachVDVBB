@@ -5,7 +5,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from . import services
-from .models import Match, Player, PointHistory, Tournament, TournamentResult
+from .models import Match, Player, PointHistory, RankingConfig, Tournament, TournamentResult
 
 
 from rest_framework.fields import empty as DRF_EMPTY
@@ -207,3 +207,24 @@ class PointHistorySerializer(serializers.ModelSerializer):
         model = PointHistory
         fields = ["id", "player", "date", "before", "after", "delta", "reason",
                   "match", "result", "match_score", "match_result", "is_doubles"]
+
+
+class RankingConfigSerializer(serializers.ModelSerializer):
+    k_khong_chap = serializers.IntegerField(min_value=1, max_value=200)
+    k_co_chap = serializers.IntegerField(min_value=1, max_value=200)
+    k_giao_huu = serializers.IntegerField(min_value=1, max_value=200)
+    bonus_vo_dich = serializers.IntegerField(min_value=0, max_value=1000)
+    bonus_a_quan = serializers.IntegerField(min_value=0, max_value=1000)
+    bonus_hang_ba = serializers.IntegerField(min_value=0, max_value=1000)
+    bonus_tu_ket = serializers.IntegerField(min_value=0, max_value=1000)
+    mult_khong_chap = serializers.FloatField(min_value=0, max_value=10)
+    mult_co_chap = serializers.FloatField(min_value=0, max_value=10)
+
+    class Meta:
+        model = RankingConfig
+        fields = [
+            "k_khong_chap", "k_co_chap", "k_giao_huu",
+            "bonus_vo_dich", "bonus_a_quan", "bonus_hang_ba", "bonus_tu_ket",
+            "mult_khong_chap", "mult_co_chap", "updated_at",
+        ]
+        read_only_fields = ["updated_at"]

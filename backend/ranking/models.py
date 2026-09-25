@@ -215,3 +215,36 @@ class LoginAttempt(models.Model):
 
     def __str__(self):
         return f"{self.username}: {self.failed_count} lần sai"
+
+
+class RankingConfig(models.Model):
+    """
+    Cấu hình quy tắc tính điểm của CLB — CHỈ CÓ DUY NHẤT 1 bản ghi (singleton),
+    chỉnh qua trang "Quản lý điểm" (chỉ Quản trị viên). Toàn bộ logic tính điểm
+    (Elo + điểm thưởng thành tích) đều đọc giá trị từ đây, không còn hard-code.
+    """
+    k_khong_chap = models.PositiveIntegerField("Hệ số K — Giải Không chấp điểm", default=32)
+    k_co_chap = models.PositiveIntegerField("Hệ số K — Giải Có chấp điểm", default=20)
+    k_giao_huu = models.PositiveIntegerField("Hệ số K — Giao hữu", default=10)
+
+    bonus_vo_dich = models.PositiveIntegerField("Điểm thưởng gốc — Vô địch", default=50)
+    bonus_a_quan = models.PositiveIntegerField("Điểm thưởng gốc — Á quân", default=30)
+    bonus_hang_ba = models.PositiveIntegerField("Điểm thưởng gốc — Hạng Ba", default=20)
+    bonus_tu_ket = models.PositiveIntegerField("Điểm thưởng gốc — Tứ kết", default=10)
+
+    mult_khong_chap = models.FloatField("Hệ số nhân thưởng — Không chấp điểm", default=1.6)
+    mult_co_chap = models.FloatField("Hệ số nhân thưởng — Có chấp điểm", default=1.0)
+
+    updated_at = models.DateTimeField("Cập nhật lần cuối", auto_now=True)
+
+    class Meta:
+        verbose_name = "Cấu hình tính điểm"
+        verbose_name_plural = "Cấu hình tính điểm"
+
+    def __str__(self):
+        return "Cấu hình tính điểm CLB"
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

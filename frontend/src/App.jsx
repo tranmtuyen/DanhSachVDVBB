@@ -446,6 +446,7 @@ function NavIcon({ name }) {
   if (name === "friendly") return <svg {...p}><circle cx="8" cy="9" r="3" /><circle cx="16" cy="9" r="3" /><path d="M2.5 20c0-3.3 2.5-5.5 5.5-5.5M21.5 20c0-3.3-2.5-5.5-5.5-5.5" /></svg>;
   if (name === "enter") return <svg {...p}><path d="M4 20h4l10.2-10.2-4-4L4 16v4Z" /><path d="M13.2 6.8l4 4" /></svg>;
   if (name === "users") return <svg {...p}><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z" /></svg>;
+  if (name === "settings") return <svg {...p}><circle cx="12" cy="12" r="3" /><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.8a7.6 7.6 0 0 0-1.7-1L15 3h-6l-.4 2.9a7.6 7.6 0 0 0-1.7 1l-2.3-.8-2 3.4L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.8a7.6 7.6 0 0 0 1.7 1L9 21h6l.4-2.9a7.6 7.6 0 0 0 1.7-1l2.3.8 2-3.4-2-1.5Z" /></svg>;
   return null;
 }
 function LoginIcon() {
@@ -625,6 +626,16 @@ export default function App() {
   async function resetUserPassword(userId, password) {
     return apiPatchJSON(`/users/${userId}/`, { password });
   }
+  async function deleteUser(userId) {
+    await apiDelete(`/users/${userId}/`);
+  }
+
+  async function fetchRankingConfig() {
+    return apiGet("/ranking-config/");
+  }
+  async function saveRankingConfig(patch) {
+    return apiPatchJSON("/ranking-config/", patch);
+  }
 
   async function changeMyPhoto(photoFile) {
     const fd = new FormData();
@@ -646,6 +657,7 @@ export default function App() {
     { id: "friendly", label: "Giao hữu", icon: "friendly", show: true },
     { id: "enter-match", label: "Nhập trận đấu", icon: "enter", show: canEnterMatches },
     { id: "users", label: "Quản lý User", icon: "users", show: role === "admin" },
+    { id: "ranking-config", label: "Quản lý điểm", icon: "settings", show: role === "admin" },
   ].filter((t) => t.show);
 
   useEffect(() => {
@@ -836,7 +848,11 @@ export default function App() {
           )}
 
           {tab === "users" && role === "admin" && (
-            <UsersTab players={players} onCreateUser={createUser} onUpdateRole={updateUserRole} onResetPassword={resetUserPassword} />
+            <UsersTab players={players} onCreateUser={createUser} onUpdateRole={updateUserRole} onResetPassword={resetUserPassword} onDeleteUser={deleteUser} />
+          )}
+
+          {tab === "ranking-config" && role === "admin" && (
+            <RankingConfigTab onFetch={fetchRankingConfig} onSave={saveRankingConfig} />
           )}
 
           {tab === "profile" && currentUser && (
@@ -2632,7 +2648,185 @@ const ROLE_OPTIONS = [
   { id: "user", label: "Người dùng" },
 ];
 
-function UsersTab({ players, onCreateUser, onUpdateRole, onResetPassword }) {
+/* ---------- Trang Quản lý điểm (chỉ Admin) ---------- */
+function RankingConfigTab({ onFetch, onSave }) {
+  const [cfg, setCfg] = useState(null);
+  const [form, setForm] = useState(null);
+  const [loadErr, setLoadErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState("");
+  const [saveErr, setSaveErr] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await onFetch();
+        setCfg(data);
+        setForm(data);
+      } catch (err) {
+        setLoadErr(err.message || "Không tải được cấu hình.");
+      }
+    })();
+  }, []);
+
+  function setField(key, value) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true); setSaveMsg(""); setSaveErr("");
+    try {
+      const payload = {
+        k_khong_chap: Number(form.k_khong_chap), k_co_chap: Number(form.k_co_chap), k_giao_huu: Number(form.k_giao_huu),
+        bonus_vo_dich: Number(form.bonus_vo_dich), bonus_a_quan: Number(form.bonus_a_quan),
+        bonus_hang_ba: Number(form.bonus_hang_ba), bonus_tu_ket: Number(form.bonus_tu_ket),
+        mult_khong_chap: Number(form.mult_khong_chap), mult_co_chap: Number(form.mult_co_chap),
+      };
+      const saved = await onSave(payload);
+      setCfg(saved); setForm(saved);
+      setSaveMsg("Đã lưu cấu hình tính điểm.");
+      setTimeout(() => setSaveMsg(""), 3000);
+    } catch (err) {
+      setSaveErr(err.message || "Có lỗi khi lưu.");
+    }
+    setSaving(false);
+  }
+
+  if (loadErr) return <EmptyState text={loadErr} />;
+  if (!form) return null;
+
+  const bonusPreview = [
+    ["vo_dich", "Vô địch"], ["a_quan", "Á quân"], ["hang_ba", "Hạng Ba"], ["tu_ket", "Tứ kết"],
+  ].map(([key, label]) => ({
+    label,
+    khongChap: Math.round(Number(form[`bonus_${key}`] || 0) * Number(form.mult_khong_chap || 0)),
+    coChap: Math.round(Number(form[`bonus_${key}`] || 0) * Number(form.mult_co_chap || 0)),
+  }));
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Hướng dẫn */}
+      <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 20 }} className="flex flex-col gap-3">
+        <div style={{ fontSize: 17, fontWeight: 700, fontFamily: FONT_DISPLAY }}>Cách CLB tính điểm</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div style={{ background: C.bg, borderRadius: 10, padding: 14 }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>1. Trận đánh đơn — tính theo Elo</div>
+            <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+              Mỗi VĐV có 1 điểm rating. Khi đấu, hệ thống dự đoán xác suất thắng dựa trên chênh lệch điểm 2 người,
+              rồi cộng/trừ điểm theo kết quả thật — thắng "bất ngờ" (chấp điểm thấp hơn) được cộng nhiều hơn thắng "chắc thắng".{" "}
+              <span className="tabular" style={{ fontWeight: 700 }}>Mức tăng/giảm = Hệ số K × (Kết quả thật − Kết quả dự đoán)</span>, làm tròn.
+              Hệ số K càng cao thì điểm biến động càng mạnh mỗi trận — nên đặt K cao hơn cho giải càng "nghiêm túc".
+            </div>
+          </div>
+          <div style={{ background: C.bg, borderRadius: 10, padding: 14 }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>2. Trận đánh đôi</div>
+            <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+              Chỉ ghi nhận thắng/thua và tỷ số — <b>không</b> cộng/trừ điểm rating cho ai, vì điểm rating là của riêng từng cá nhân.
+            </div>
+          </div>
+          <div style={{ background: C.bg, borderRadius: 10, padding: 14 }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>3. Điểm thưởng thành tích giải đấu</div>
+            <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+              Khi giải kết thúc, VĐV (hoặc cả nhóm nếu thi Đôi/Đồng đội) đạt thứ hạng cao được cộng thêm 1 lần:{" "}
+              <span className="tabular" style={{ fontWeight: 700 }}>Điểm thưởng = Điểm thưởng gốc theo hạng × Hệ số nhân theo loại giải</span>, làm tròn.
+              Giải Giao hữu không áp dụng điểm thưởng này.
+            </div>
+          </div>
+          <div style={{ background: C.bg, borderRadius: 10, padding: 14 }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>4. "Lưu thành tích" vs "Cộng điểm thưởng"</div>
+            <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+              Ở trang Giải đấu, Admin/Quản lý Giải đấu có thể chỉ <b>lưu lại</b> thành tích (không cộng điểm) — dùng cho các nội dung phụ,
+              hoặc <b>cộng điểm thưởng</b> thật theo đúng công thức ở trên.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Form chỉnh cấu hình */}
+      <form onSubmit={save} className="flex flex-col gap-4">
+        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 20 }} className="flex flex-col gap-3">
+          <div style={{ fontWeight: 700, fontSize: 14.5 }}>Hệ số K (Elo) theo loại giải</div>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Không chấp điểm">
+              <input type="number" min="1" max="200" style={inputStyle} value={form.k_khong_chap} onChange={(e) => setField("k_khong_chap", e.target.value)} />
+            </Field>
+            <Field label="Có chấp điểm">
+              <input type="number" min="1" max="200" style={inputStyle} value={form.k_co_chap} onChange={(e) => setField("k_co_chap", e.target.value)} />
+            </Field>
+            <Field label="Giao hữu">
+              <input type="number" min="1" max="200" style={inputStyle} value={form.k_giao_huu} onChange={(e) => setField("k_giao_huu", e.target.value)} />
+            </Field>
+          </div>
+        </div>
+
+        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 20 }} className="flex flex-col gap-3">
+          <div style={{ fontWeight: 700, fontSize: 14.5 }}>Điểm thưởng gốc theo thành tích</div>
+          <div className="grid grid-cols-4 gap-3">
+            <Field label="Vô địch">
+              <input type="number" min="0" max="1000" style={inputStyle} value={form.bonus_vo_dich} onChange={(e) => setField("bonus_vo_dich", e.target.value)} />
+            </Field>
+            <Field label="Á quân">
+              <input type="number" min="0" max="1000" style={inputStyle} value={form.bonus_a_quan} onChange={(e) => setField("bonus_a_quan", e.target.value)} />
+            </Field>
+            <Field label="Hạng Ba">
+              <input type="number" min="0" max="1000" style={inputStyle} value={form.bonus_hang_ba} onChange={(e) => setField("bonus_hang_ba", e.target.value)} />
+            </Field>
+            <Field label="Tứ kết">
+              <input type="number" min="0" max="1000" style={inputStyle} value={form.bonus_tu_ket} onChange={(e) => setField("bonus_tu_ket", e.target.value)} />
+            </Field>
+          </div>
+
+          <div style={{ fontWeight: 700, fontSize: 14.5, marginTop: 8 }}>Hệ số nhân điểm thưởng theo loại giải</div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Không chấp điểm">
+              <input type="number" min="0" max="10" step="0.1" style={inputStyle} value={form.mult_khong_chap} onChange={(e) => setField("mult_khong_chap", e.target.value)} />
+            </Field>
+            <Field label="Có chấp điểm">
+              <input type="number" min="0" max="10" step="0.1" style={inputStyle} value={form.mult_co_chap} onChange={(e) => setField("mult_co_chap", e.target.value)} />
+            </Field>
+          </div>
+
+          <div style={{ background: C.bg, borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: C.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.3 }}>
+              Xem trước điểm thưởng thực tế theo giá trị đang nhập
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "4px 8px" }}>Thành tích</th>
+                  <th style={{ textAlign: "right", fontSize: 12, color: C.muted, padding: "4px 8px" }}>Không chấp điểm</th>
+                  <th style={{ textAlign: "right", fontSize: 12, color: C.muted, padding: "4px 8px" }}>Có chấp điểm</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bonusPreview.map((row) => (
+                  <tr key={row.label} style={{ borderTop: `1px solid ${C.line}` }}>
+                    <td style={{ padding: "6px 8px", fontSize: 13 }}>{row.label}</td>
+                    <td className="tabular" style={{ padding: "6px 8px", fontSize: 13, textAlign: "right", fontWeight: 700, color: "#1E8E52" }}>+{row.khongChap}</td>
+                    <td className="tabular" style={{ padding: "6px 8px", fontSize: 13, textAlign: "right", fontWeight: 700, color: "#1E8E52" }}>+{row.coChap}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {saveErr && <div style={{ color: C.bad, fontSize: 13 }}>{saveErr}</div>}
+          <div className="flex items-center gap-3">
+            <button type="submit" style={btnPrimary} disabled={saving}>{saving ? "Đang lưu…" : "Lưu cấu hình"}</button>
+            <button type="button" style={btnGhost} onClick={() => setForm(cfg)}>Hoàn tác thay đổi</button>
+            {saveMsg && <span style={{ fontSize: 13, color: "#1E8E52", fontWeight: 600 }}>{saveMsg}</span>}
+          </div>
+          <div style={{ fontSize: 11.5, color: C.muted }}>
+            Lưu ý: thay đổi ở đây chỉ áp dụng cho các trận đấu/thành tích được ghi nhận SAU khi lưu — không tính lại các trận đã có từ trước.
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function UsersTab({ players, onCreateUser, onUpdateRole, onResetPassword, onDeleteUser }) {
   const [users, setUsers] = useState(null);
   const [loadErr, setLoadErr] = useState("");
   const [showAdd, setShowAdd] = useState(false);
@@ -2665,6 +2859,19 @@ function UsersTab({ players, onCreateUser, onUpdateRole, onResetPassword }) {
       alert("Đã đổi mật khẩu.");
     } catch (err) {
       alert(err.message || "Có lỗi khi đổi mật khẩu.");
+    }
+  }
+
+  async function removeUser(u) {
+    const warn = u.player_name
+      ? `Xóa tài khoản "${u.username}"? VĐV "${u.player_name}" đang gắn với tài khoản này sẽ được GỠ RA (VĐV không bị xóa, chỉ mất liên kết).`
+      : `Xóa tài khoản "${u.username}"? Không thể hoàn tác.`;
+    if (!window.confirm(warn)) return;
+    try {
+      await onDeleteUser(u.id);
+      await load();
+    } catch (err) {
+      alert(err.message || "Có lỗi khi xóa user.");
     }
   }
 
@@ -2701,6 +2908,7 @@ function UsersTab({ players, onCreateUser, onUpdateRole, onResetPassword }) {
                   {ROLE_OPTIONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
                 </select>
                 <button style={{ ...btnGhost, padding: "6px 12px", fontSize: 12.5 }} onClick={() => resetPassword(u.id, u.username)}>Đổi mật khẩu</button>
+                <button style={{ ...btnGhost, padding: "6px 12px", fontSize: 12.5, color: C.bad, borderColor: C.bad + "55" }} onClick={() => removeUser(u)}>Xóa</button>
               </div>
             </div>
           ))}

@@ -54,12 +54,30 @@ BONUS_LABEL = {"vo_dich": "Vô địch", "a_quan": "Á quân", "hang_ba": "Hạn
 BONUS_MULT = {Tournament.KHONG_CHAP: 1.6, Tournament.CO_CHAP: 1.0}  # giao hữu: không áp dụng
 
 
+def _cfg():
+    from .models import RankingConfig
+    return RankingConfig.get_solo()
+
+
+def _k_factor_map(cfg):
+    return {Tournament.KHONG_CHAP: cfg.k_khong_chap, Tournament.CO_CHAP: cfg.k_co_chap, Match.GIAO_HUU: cfg.k_giao_huu}
+
+
+def _bonus_base_map(cfg):
+    return {"vo_dich": cfg.bonus_vo_dich, "a_quan": cfg.bonus_a_quan, "hang_ba": cfg.bonus_hang_ba, "tu_ket": cfg.bonus_tu_ket}
+
+
+def _bonus_mult_map(cfg):
+    return {Tournament.KHONG_CHAP: cfg.mult_khong_chap, Tournament.CO_CHAP: cfg.mult_co_chap}
+
+
 def expected_score(r_a, r_b):
     return 1 / (1 + 10 ** ((r_b - r_a) / 400))
 
 
 def compute_match_delta(r_a, r_b, winner, loai_tran):
-    k = K_FACTOR.get(loai_tran, 20)
+    cfg = _cfg()
+    k = _k_factor_map(cfg).get(loai_tran, 20)
     e_a = expected_score(r_a, r_b)
     s_a = 1 if winner == "A" else 0
     delta_a = round(k * (s_a - e_a))
@@ -67,10 +85,11 @@ def compute_match_delta(r_a, r_b, winner, loai_tran):
 
 
 def compute_bonus(placement, loai_giai):
-    mult = BONUS_MULT.get(loai_giai)
+    cfg = _cfg()
+    mult = _bonus_mult_map(cfg).get(loai_giai)
     if not mult:
         return 0
-    return round(BONUS_BASE[placement] * mult)
+    return round(_bonus_base_map(cfg)[placement] * mult)
 
 
 def _reason_prefix(tournament, loai, is_doubles):
