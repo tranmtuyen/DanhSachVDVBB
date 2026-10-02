@@ -99,6 +99,17 @@ function getRecaptchaToken(action = "login") {
   });
 }
 
+/* Tính theo từng VĐV: tổng điểm từ trận đấu (match) và tổng điểm thưởng thành tích (result) — dựa trên PointHistory */
+function computeDeltaMap(history) {
+  const map = {};
+  for (const h of history || []) {
+    if (!map[h.player]) map[h.player] = { matchDelta: 0, achievementBonus: 0 };
+    if (h.match) map[h.player].matchDelta += h.delta;
+    else if (h.result) map[h.player].achievementBonus += h.delta;
+  }
+  return map;
+}
+
 function normalizeVN(s) {
   return (s || "")
     .toLowerCase()
@@ -248,10 +259,22 @@ const btnGhost = {
   padding: "10px 20px", fontSize: 14, fontWeight: 700, fontFamily: FONT_BODY, cursor: "pointer",
 };
 
-function ScorePill({ value, style }) {
+function ScorePill({ value, style, matchDelta, achievementBonus }) {
   return (
-    <span className="tabular" style={{ background: C.pillScoreBg, color: C.pillScoreText, fontWeight: 700, fontSize: 13.5, padding: "4px 12px", borderRadius: 999, ...style }}>
-      {value}
+    <span className="flex items-center" style={{ gap: 4, display: "inline-flex" }}>
+      <span className="tabular" style={{ background: C.pillScoreBg, color: C.pillScoreText, fontWeight: 700, fontSize: 13.5, padding: "4px 12px", borderRadius: 999, ...style }}>
+        {value}
+      </span>
+      {!!matchDelta && (
+        <span className="tabular" style={{ color: matchDelta > 0 ? C.pillUpText : C.pillDownText, fontWeight: 700, fontSize: 12 }}>
+          ({matchDelta > 0 ? "+" : ""}{matchDelta})
+        </span>
+      )}
+      {!!achievementBonus && achievementBonus > 0 && (
+        <span className="tabular" style={{ color: "#FF9900", fontWeight: 700, fontSize: 12 }}>
+          (+{achievementBonus})
+        </span>
+      )}
     </span>
   );
 }
@@ -826,7 +849,7 @@ export default function App() {
           )}
 
           {tab === "players" && (
-            <PlayersTab players={players} canManage={canManagePlayers} onAdd={addPlayer} onSelect={setSelectedPlayer} />
+            <PlayersTab players={players} history={history} canManage={canManagePlayers} onAdd={addPlayer} onSelect={setSelectedPlayer} />
           )}
 
           {tab === "tournaments" && (
@@ -896,6 +919,7 @@ function Leaderboard({ players, matches, history, onSelect }) {
     sorted.forEach((p, i) => m.set(p.id, i + 1));
     return m;
   }, [sorted]);
+  const deltaMap = useMemo(() => computeDeltaMap(history), [history]);
 
   const filtered = useMemo(() => {
     const q = normalizeVN(query.trim());
@@ -956,7 +980,7 @@ function Leaderboard({ players, matches, history, onSelect }) {
                       </div>
                     </td>
                     <td className="tt-lb-td" style={{ padding: "12px 16px", textAlign: "center" }}>
-                      <ScorePill value={p.rating} />
+                      <ScorePill value={p.rating} matchDelta={deltaMap[p.id]?.matchDelta} achievementBonus={deltaMap[p.id]?.achievementBonus} />
                     </td>
                   </tr>
                 );
@@ -1002,7 +1026,8 @@ function RankLegend() {
   );
 }
 
-function PlayersTab({ players, canManage, onAdd, onSelect }) {
+function PlayersTab({ players, history, canManage, onAdd, onSelect }) {
+  const deltaMap = useMemo(() => computeDeltaMap(history), [history]);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [nickname, setNickname] = useState("");
@@ -1119,7 +1144,7 @@ function PlayersTab({ players, canManage, onAdd, onSelect }) {
                   </div>
                   <div className="flex items-center gap-3">
                     <HangBadge hang={p.hang} />
-                    <ScorePill value={p.rating} />
+                    <ScorePill value={p.rating} matchDelta={deltaMap[p.id]?.matchDelta} achievementBonus={deltaMap[p.id]?.achievementBonus} />
                   </div>
                 </div>
               ))}
@@ -1421,6 +1446,7 @@ function ProfileTab({ currentUser, players, matches, tournaments, results, histo
   );
 
   const chronoHistory = useMemo(() => [...playerHistory].reverse(), [playerHistory]);
+  const myDelta = useMemo(() => computeDeltaMap(playerHistory)[player?.id] || {}, [playerHistory, player]);
   const chartData = useMemo(() => {
     if (!player) return [];
     const points = chronoHistory.map((h, i) => ({ idx: i + 1, rating: h.after }));
@@ -1518,7 +1544,7 @@ function ProfileTab({ currentUser, players, matches, tournaments, results, histo
               </div>
               <div className="flex items-center gap-3">
                 <HangBadge hang={player.hang} />
-                <ScorePill value={player.rating} style={{ fontSize: 18, padding: "6px 16px" }} />
+                <ScorePill value={player.rating} style={{ fontSize: 18, padding: "6px 16px" }} matchDelta={myDelta.matchDelta} achievementBonus={myDelta.achievementBonus} />
               </div>
             </div>
           </div>
