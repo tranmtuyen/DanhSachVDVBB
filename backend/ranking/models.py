@@ -77,12 +77,36 @@ class Tournament(models.Model):
         return self.name
 
 
+class TournamentGroup(models.Model):
+    """Bảng đấu (A, B, C...) trong 1 giải đấu, gồm các VĐV thi đấu vòng bảng."""
+    tournament = models.ForeignKey(Tournament, verbose_name="Giải đấu", on_delete=models.CASCADE, related_name="groups")
+    name = models.CharField("Tên bảng", max_length=20)
+    players = models.ManyToManyField(Player, verbose_name="VĐV trong bảng", blank=True, related_name="tournament_groups")
+
+    class Meta:
+        verbose_name = "Bảng đấu"
+        verbose_name_plural = "Bảng đấu"
+        ordering = ["name"]
+        unique_together = ("tournament", "name")
+
+    def __str__(self):
+        return f"{self.tournament} — Bảng {self.name}"
+
+
 class Match(models.Model):
     GIAO_HUU = "giao_huu"
     LOAI_TRAN_CHOICES = Tournament.LOAI_GIAI_CHOICES + [(GIAO_HUU, "Giao hữu")]
     MODE_CHOICES = [("don", "Đánh đơn"), ("doi", "Đánh đôi")]
     SIDE_CHOICES = [("A", "A"), ("B", "B")]
     STATUS_CHOICES = [("completed", "Đã kết thúc"), ("scheduled", "Sắp diễn ra")]
+    STAGE_CHOICES = [
+        ("bang", "Vòng bảng"),
+        ("vong_1_8", "Vòng 1/8"),
+        ("tu_ket", "Tứ kết"),
+        ("ban_ket", "Bán kết"),
+        ("tranh_hang_ba", "Tranh hạng Ba"),
+        ("chung_ket", "Chung kết"),
+    ]
 
     tournament = models.ForeignKey(
         Tournament, verbose_name="Giải đấu", null=True, blank=True,
@@ -91,6 +115,11 @@ class Match(models.Model):
     type = models.CharField("Loại trận", max_length=20, choices=LOAI_TRAN_CHOICES)
     mode = models.CharField("Thể thức", max_length=10, choices=MODE_CHOICES, default="don")
     status = models.CharField("Trạng thái trận đấu", max_length=12, choices=STATUS_CHOICES, default="completed")
+    stage = models.CharField("Giai đoạn", max_length=20, choices=STAGE_CHOICES, blank=True, default="")
+    group = models.ForeignKey(
+        TournamentGroup, verbose_name="Bảng đấu", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="matches"
+    )
     player_a = models.ForeignKey(Player, verbose_name="VĐV A", on_delete=models.CASCADE, related_name="matches_as_a")
     player_b = models.ForeignKey(Player, verbose_name="VĐV B", on_delete=models.CASCADE, related_name="matches_as_b")
     player_a2 = models.ForeignKey(

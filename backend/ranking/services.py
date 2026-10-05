@@ -100,7 +100,7 @@ def _reason_prefix(tournament, loai, is_doubles):
 
 
 def record_match(*, tournament, mode="don", player_a, player_b, player_a2=None, player_b2=None,
-                  sets_a=None, sets_b=None, date=None, status="completed"):
+                  sets_a=None, sets_b=None, date=None, status="completed", stage="", group=None):
     """Tạo 1 trận đấu (đơn hoặc đôi), tự tính điểm, cập nhật rating, ghi lịch sử điểm.
     status="scheduled": trận sắp diễn ra, chưa có tỷ số, không tính điểm — chỉ ghi nhận lịch."""
     loai = tournament.type if tournament else Match.GIAO_HUU
@@ -116,7 +116,7 @@ def record_match(*, tournament, mode="don", player_a, player_b, player_a2=None, 
 
     if status == "scheduled":
         match = Match.objects.create(
-            tournament=tournament, type=loai, mode=mode, status="scheduled",
+            tournament=tournament, type=loai, mode=mode, status="scheduled", stage=stage, group=group,
             player_a=player_a, player_b=player_b,
             player_a2=player_a2 if is_doubles else None,
             player_b2=player_b2 if is_doubles else None,
@@ -136,7 +136,7 @@ def record_match(*, tournament, mode="don", player_a, player_b, player_a2=None, 
         delta_a, delta_b = compute_match_delta(player_a.rating, player_b.rating, winner_side, loai)
 
     match = Match.objects.create(
-        tournament=tournament, type=loai, mode=mode, status="completed",
+        tournament=tournament, type=loai, mode=mode, status="completed", stage=stage, group=group,
         player_a=player_a, player_b=player_b,
         player_a2=player_a2 if is_doubles else None,
         player_b2=player_b2 if is_doubles else None,
@@ -436,6 +436,14 @@ def delete_result(result):
     """Xóa 1 thành tích: hoàn tác điểm đã cộng (nếu có) cho VĐV + đồng đội, rồi xóa."""
     _revert_result_bonus(result)
     result.delete()
+
+
+def delete_group(group):
+    """Xóa bảng đấu: xóa các trận vòng bảng thuộc bảng này (hoàn tác điểm), rồi xóa bảng."""
+    for m in Match.objects.filter(group=group):
+        _revert(m)
+        m.delete()
+    group.delete()
 
 
 def delete_tournament(tournament):

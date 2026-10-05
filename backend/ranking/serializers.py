@@ -5,7 +5,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from . import services
-from .models import Match, Player, PointHistory, RankingConfig, Tournament, TournamentResult
+from .models import Match, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
 
 
 from rest_framework.fields import empty as DRF_EMPTY
@@ -123,7 +123,7 @@ class TournamentSerializer(serializers.ModelSerializer):
 class MatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = Match
-        fields = ["id", "tournament", "type", "mode", "status", "player_a", "player_b", "player_a2", "player_b2",
+        fields = ["id", "tournament", "type", "mode", "status", "stage", "group", "player_a", "player_b", "player_a2", "player_b2",
                   "sets_a", "sets_b", "winner_side", "delta_a", "delta_b", "date"]
         read_only_fields = ["type", "winner_side", "delta_a", "delta_b"]
 
@@ -132,6 +132,8 @@ class MatchCreateSerializer(serializers.Serializer):
     tournament = serializers.PrimaryKeyRelatedField(queryset=Tournament.objects.all(), required=False, allow_null=True)
     mode = serializers.ChoiceField(choices=Match.MODE_CHOICES, default="don")
     status = serializers.ChoiceField(choices=Match.STATUS_CHOICES, default="completed")
+    stage = serializers.ChoiceField(choices=Match.STAGE_CHOICES, required=False, allow_blank=True, default="")
+    group = serializers.PrimaryKeyRelatedField(queryset=TournamentGroup.objects.all(), required=False, allow_null=True)
     player_a = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
     player_b = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
     player_a2 = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, allow_null=True)
@@ -157,6 +159,23 @@ class MatchCreateSerializer(serializers.Serializer):
         else:
             if data["player_a"] == data["player_b"]:
                 raise serializers.ValidationError("VĐV A và VĐV B phải khác nhau.")
+
+        stage, group, tournament = data.get("stage", ""), data.get("group"), data.get("tournament")
+        if stage and not tournament:
+            raise serializers.ValidationError("Chỉ trận trong giải đấu mới có giai đoạn/bảng.")
+        if stage == "bang":
+            if not group:
+                raise serializers.ValidationError("Trận vòng bảng cần chọn bảng đấu.")
+            if group.tournament_id != tournament.id:
+                raise serializers.ValidationError("Bảng đấu không thuộc giải đấu này.")
+            member_ids = set(group.players.values_list("id", flat=True))
+            ids = [data["player_a"].id, data["player_b"].id]
+            if data.get("mode") == "doi":
+                ids += [data["player_a2"].id, data["player_b2"].id]
+            if not set(ids) <= member_ids:
+                raise serializers.ValidationError("Tất cả VĐV trong trận vòng bảng phải thuộc bảng đã chọn.")
+        elif group:
+            raise serializers.ValidationError("Chỉ trận vòng bảng mới thuộc 1 bảng đấu.")
         return data
 
 
@@ -228,3 +247,30 @@ class RankingConfigSerializer(serializers.ModelSerializer):
             "mult_khong_chap", "mult_co_chap", "updated_at",
         ]
         read_only_fields = ["updated_at"]
+
+
+class GroupSerializer(serializers.ModelSerializer):
+    players = serializers.PrimaryKeyRelatedField(many=True, queryset=Player.objects.all(), required=False)
+
+    class Meta:
+        model = TournamentGroup
+        fields = ["id", "tournament", "name", "players"]
+        validators = []  # dùng thông báo kiểm tra trùng tên bằng tiếng Việt ở validate() bên dưới
+
+    def validate(self, data):
+        tournament = data.get("tournament") or (self.instance.tournament if self.instance else None)
+        name = data.get("name", self.instance.name if self.instance else None)
+        if name is not None:
+            dup = TournamentGroup.objects.filter(tournament=tournament, name=name)
+            if self.instance:
+                dup = dup.exclude(pk=self.instance.pk)
+            if dup.exists():
+                raise serializers.ValidationError("Giải đấu này đã có bảng trùng tên.")
+        players = data.get("players")
+        if players:
+            others = TournamentGroup.objects.filter(tournament=tournament, players__in=players)
+            if self.instance:
+                others = others.exclude(pk=self.instance.pk)
+            if others.exists():
+                raise serializers.ValidationError("Có VĐV đã thuộc bảng khác trong cùng giải đấu.")
+        return data

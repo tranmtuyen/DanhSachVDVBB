@@ -15,9 +15,9 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from . import services
-from .models import LoginAttempt, Match, Player, PointHistory, RankingConfig, Tournament, TournamentResult
+from .models import LoginAttempt, Match, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
 from .serializers import (
-    MatchCreateSerializer, MatchSerializer, MatchUpdateSerializer, PlayerPhotoSerializer, PlayerSerializer,
+    GroupSerializer, MatchCreateSerializer, MatchSerializer, MatchUpdateSerializer, PlayerPhotoSerializer, PlayerSerializer,
     PointHistorySerializer, RankingConfigSerializer, ResultCreateSerializer, ResultSerializer, ResultUpdateSerializer,
     TournamentSerializer, UserSerializer,
 )
@@ -278,6 +278,8 @@ class MatchViewSet(viewsets.ModelViewSet):
                 tournament=d.get("tournament"),
                 mode=d.get("mode", "don"),
                 status=d.get("status", "completed"),
+                stage=d.get("stage", ""),
+                group=d.get("group"),
                 player_a=d["player_a"],
                 player_b=d["player_b"],
                 player_a2=d.get("player_a2"),
@@ -361,6 +363,18 @@ class ResultViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         result = self.get_object()
         services.delete_result(result)
+        return Response(status=204)
+
+
+class GroupViewSet(viewsets.ModelViewSet):
+    """Bảng đấu trong giải: ai cũng xem được; Admin/Quản lý Giải đấu được tạo/sửa/xóa."""
+    queryset = TournamentGroup.objects.all().order_by("tournament", "name")
+    serializer_class = GroupSerializer
+    permission_classes = [IsAdminOrManager]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def destroy(self, request, *args, **kwargs):
+        services.delete_group(self.get_object())
         return Response(status=204)
 
 
