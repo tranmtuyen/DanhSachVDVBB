@@ -2208,8 +2208,8 @@ function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpd
   }
 
   return (
-    <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden" }}>
-      <div className="flex items-center justify-between" style={{ padding: "12px 14px", background: C.bg }}>
+    <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14 }}>
+      <div className="flex items-center justify-between" style={{ padding: "12px 14px", background: C.bg, borderRadius: "13px 13px 0 0" }}>
         <div className="flex items-center gap-3">
           <span
             style={{
