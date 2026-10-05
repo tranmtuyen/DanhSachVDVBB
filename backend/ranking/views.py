@@ -232,9 +232,15 @@ class PlayerViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def adjust_rating(self, request, pk=None):
         player = self.get_object()
-        new_rating = request.data.get("rating")
-        if new_rating is None:
+        raw_rating = request.data.get("rating")
+        if raw_rating is None:
             raise ValidationError("Thiếu giá trị rating mới.")
+        try:
+            new_rating = int(str(raw_rating).strip())
+        except (TypeError, ValueError):
+            raise ValidationError("Rating phải là số nguyên.")
+        if not (0 <= new_rating <= 10000):
+            raise ValidationError("Rating phải nằm trong khoảng 0–10000.")
         services.adjust_rating(player, new_rating)
         return Response(PlayerSerializer(player, context={"request": request}).data)
 
