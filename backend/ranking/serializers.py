@@ -144,7 +144,9 @@ class MatchCreateSerializer(serializers.Serializer):
     tournament = serializers.PrimaryKeyRelatedField(queryset=Tournament.objects.all(), required=False, allow_null=True)
     mode = serializers.ChoiceField(choices=Match.MODE_CHOICES, default="don")
     status = serializers.ChoiceField(choices=Match.STATUS_CHOICES, default="completed")
-    stage = serializers.ChoiceField(choices=Match.STAGE_CHOICES, required=False, allow_blank=True, default="")
+    # Chỉ "bang"/"ban_ket"/"chung_ket" có ý nghĩa đặc biệt (xem models.py) — ngoài ra là tên
+    # vòng đấu tự do người dùng gõ (VD "Vòng 1/8", "Vòng 1/16", "Tranh hạng Ba"...).
+    stage = serializers.CharField(required=False, allow_blank=True, default="", max_length=30, trim_whitespace=True)
     group = serializers.PrimaryKeyRelatedField(queryset=TournamentGroup.objects.all(), required=False, allow_null=True)
     player_a = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
     player_b = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())

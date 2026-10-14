@@ -99,12 +99,13 @@ class Match(models.Model):
     MODE_CHOICES = [("don", "Đánh đơn"), ("doi", "Đánh đôi")]
     SIDE_CHOICES = [("A", "A"), ("B", "B")]
     STATUS_CHOICES = [("completed", "Đã kết thúc"), ("scheduled", "Sắp diễn ra")]
+    # Lưu ý: "bang" (vòng bảng — do hệ thống tự gán), "ban_ket" và "chung_ket" là 3 giá trị
+    # CỐ ĐỊNH, có ý nghĩa đặc biệt trong logic (vòng bảng gắn với TournamentGroup, "chung_ket"
+    # dùng để xác định Nhà vô địch). Mọi giá trị khác là TÊN VÒNG ĐẤU TỰ DO do người nhập gõ
+    # (VD: "Vòng 1/8", "Tứ kết", "Vòng 1/16", "Tranh hạng Ba"...) — không còn giới hạn choices.
     STAGE_CHOICES = [
         ("bang", "Vòng bảng"),
-        ("vong_1_8", "Vòng 1/8"),
-        ("tu_ket", "Tứ kết"),
         ("ban_ket", "Bán kết"),
-        ("tranh_hang_ba", "Tranh hạng Ba"),
         ("chung_ket", "Chung kết"),
     ]
 
@@ -115,7 +116,7 @@ class Match(models.Model):
     type = models.CharField("Loại trận", max_length=20, choices=LOAI_TRAN_CHOICES)
     mode = models.CharField("Thể thức", max_length=10, choices=MODE_CHOICES, default="don")
     status = models.CharField("Trạng thái trận đấu", max_length=12, choices=STATUS_CHOICES, default="completed")
-    stage = models.CharField("Giai đoạn", max_length=20, choices=STAGE_CHOICES, blank=True, default="")
+    stage = models.CharField("Giai đoạn / Vòng đấu", max_length=30, blank=True, default="")
     group = models.ForeignKey(
         TournamentGroup, verbose_name="Bảng đấu", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="matches"

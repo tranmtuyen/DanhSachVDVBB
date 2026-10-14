@@ -1783,7 +1783,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
     const selfWon = (isASide && m.winner_side === "A") || (!isASide && m.winner_side === "B");
     const scoreText = isASide ? `${m.sets_a}–${m.sets_b}` : `${m.sets_b}–${m.sets_a}`;
     const contextLabel = m.tournament
-      ? ((data.tournaments?.find((t) => t.id === m.tournament)?.name || "Giải đấu") + (m.stage ? ` · ${STAGE_LABEL[m.stage]}` : ""))
+      ? ((data.tournaments?.find((t) => t.id === m.tournament)?.name || "Giải đấu") + (m.stage && m.stage !== "bang" ? ` · ${stageLabel(m.stage)}` : ""))
       : "Giao hữu";
     const selfDelta = isASide ? m.delta_a : m.delta_b;
     perspective = { selfLabel: isASide ? labelA : labelB, oppLabel: isASide ? labelB : labelA, selfWon, scoreText, contextLabel, isASide, selfDelta };
@@ -2165,11 +2165,18 @@ function ResultRow({ result: r, players, canManage, onEdit, onDelete }) {
 /* =====================================================================
    QUẢN LÝ GIẢI ĐẤU (popup): Bảng đấu · Vòng loại trực tiếp · Thành tích
    ===================================================================== */
+// Nhãn hiển thị cho các giai đoạn CỐ ĐỊNH (bang/ban_ket/chung_ket) + các mã cũ (tương thích dữ
+// liệu đã nhập từ trước khi cho phép đặt tên vòng đấu tự do). Vòng đấu tự do: hiển thị đúng
+// tên người dùng đã gõ (xem hàm stageLabel bên dưới).
 const STAGE_LABEL = {
   bang: "Vòng bảng", vong_1_8: "Vòng 1/8", tu_ket: "Tứ kết",
   ban_ket: "Bán kết", tranh_hang_ba: "Tranh hạng Ba", chung_ket: "Chung kết",
 };
-const KNOCKOUT_STAGES = ["vong_1_8", "tu_ket", "ban_ket", "tranh_hang_ba", "chung_ket"];
+function stageLabel(s) {
+  return STAGE_LABEL[s] || s;
+}
+// Gợi ý nhanh khi nhập tên vòng đấu tự do ở tab Vòng loại trực tiếp (chỉ là gợi ý — có thể gõ tên khác).
+const KNOCKOUT_STAGE_SUGGESTIONS = ["Vòng 1/32", "Vòng 1/16", "Vòng 1/8", "Tứ kết", "Tranh hạng Ba"];
 
 function namesOf(ids, players) {
   return ids.filter(Boolean).map((id) => players.find((p) => p.id === id)?.name).filter(Boolean);
@@ -2196,12 +2203,13 @@ function groupStandings(group, matches, players) {
 }
 
 /* ---------- Thẻ 1 bảng đấu (giao diện dạng lưới, giống mẫu "Bảng A") ---------- */
-function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpdate, onDelete }) {
+function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpdate, onDelete, canEditMatches, onEditMatch, onDeleteMatch }) {
   const [editing, setEditing] = useState(false);
   const [err, setErr] = useState("");
   const rows = groupStandings(group, matches, players);
   const usedIds = tournamentGroups.flatMap((g) => g.players);
   const groupMatches = matches.filter((m) => m.group === group.id);
+  const matchData = useMemo(() => ({ players }), [players]);
 
   async function addMember(idStr) {
     setErr("");
@@ -2283,6 +2291,24 @@ function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpd
           {err && <div style={{ color: C.bad, fontSize: 12.5 }}>{err}</div>}
         </div>
       )}
+
+      <div style={{ borderTop: `1px solid ${C.line}` }}>
+        <div style={{ padding: "10px 14px 2px", fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>
+          Trận vòng bảng ({groupMatches.length})
+        </div>
+        {groupMatches.length === 0 ? (
+          <div style={{ padding: "4px 14px 14px", fontSize: 12.5, color: C.muted }}>Chưa có trận nào trong bảng này.</div>
+        ) : (
+          <div style={{ padding: "0 14px 6px" }}>
+            {groupMatches.map((m) => (
+              <MatchRow
+                key={m.id} match={m} data={matchData} canManage={canEditMatches}
+                onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -2291,7 +2317,10 @@ function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpd
 function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) {
   const [open, setOpen] = useState(false);
   const [groupId, setGroupId] = useState("");
-  const [stage, setStage] = useState("tu_ket");
+  // Vòng đấu (chỉ áp dụng kind==="knockout"): "ban_ket" / "chung_ket" là 2 giá trị cố định;
+  // "custom" = người dùng tự gõ tên vòng đấu (VD: Vòng 1/8, Vòng 1/16, Tứ kết, Tranh hạng Ba...).
+  const [stageMode, setStageMode] = useState("custom");
+  const [customStage, setCustomStage] = useState("");
   const [mode, setMode] = useState("don");
   const [status, setStatus] = useState("completed");
   const [a, setA] = useState(""); const [a2, setA2] = useState("");
@@ -2304,6 +2333,7 @@ function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) 
   const group = kind === "group" ? groups.find((g) => String(g.id) === gid) : null;
   const pool = kind === "group" ? players.filter((p) => group?.players.includes(p.id)) : players;
   const scheduled = status === "scheduled";
+  const stage = kind === "group" ? "bang" : (stageMode === "custom" ? customStage.trim() : stageMode);
 
   function resetPlayers() { setA(""); setA2(""); setB(""); setB2(""); }
 
@@ -2311,6 +2341,7 @@ function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) 
     e.preventDefault();
     setError(""); setMsg("");
     if (kind === "group" && !group) { setError("Hãy tạo bảng và thêm VĐV vào bảng trước."); return; }
+    if (kind === "knockout" && stageMode === "custom" && !customStage.trim()) { setError("Hãy nhập tên vòng đấu (VD: Vòng 1/8, Tứ kết…)."); return; }
     if (!scheduled && Number(setsA) === Number(setsB)) { setError("Tỷ số không thể hòa."); return; }
     const ids = mode === "doi" ? [a, a2, b, b2] : [a, b];
     if (ids.some((x) => !x)) { setError("Hãy chọn đủ VĐV cho trận đấu."); return; }
@@ -2323,11 +2354,11 @@ function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) 
         playerAId: Number(a), playerBId: Number(b),
         playerA2Id: mode === "doi" ? Number(a2) : undefined, playerB2Id: mode === "doi" ? Number(b2) : undefined,
         setsA: scheduled ? null : Number(setsA), setsB: scheduled ? null : Number(setsB),
-        stage: kind === "group" ? "bang" : stage, groupId: kind === "group" ? Number(gid) : null,
+        stage, groupId: kind === "group" ? Number(gid) : null,
         handicapA: handicapA.trim(), handicapB: handicapB.trim(),
       });
       setMsg(scheduled ? "Đã tạo trận sắp diễn ra." : "Đã lưu kết quả trận đấu.");
-      resetPlayers(); setSetsA(3); setSetsB(0); setHandicapA(""); setHandicapB("");
+      resetPlayers(); setSetsA(3); setSetsB(0); setHandicapA(""); setHandicapB(""); setCustomStage("");
       setTimeout(() => setMsg(""), 3000);
     } catch (err) {
       setError(err.message || "Có lỗi khi lưu trận đấu.");
@@ -2356,9 +2387,11 @@ function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) 
           </Field>
         ) : (
           <Field label="Vòng đấu">
-            <select style={inputStyle} value={stage} onChange={(e) => setStage(e.target.value)}>
-              {KNOCKOUT_STAGES.map((s) => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
-            </select>
+            <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
+              <button type="button" onClick={() => setStageMode("custom")} style={{ ...(stageMode === "custom" ? btnPrimary : btnGhost), padding: "8px 14px", fontSize: 13 }}>Vòng khác…</button>
+              <button type="button" onClick={() => setStageMode("ban_ket")} style={{ ...(stageMode === "ban_ket" ? btnPrimary : btnGhost), padding: "8px 14px", fontSize: 13 }}>Bán kết</button>
+              <button type="button" onClick={() => setStageMode("chung_ket")} style={{ ...(stageMode === "chung_ket" ? btnPrimary : btnGhost), padding: "8px 14px", fontSize: 13 }}>Chung kết</button>
+            </div>
           </Field>
         )}
         <Field label="Thể thức">
@@ -2378,6 +2411,25 @@ function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) 
           </div>
         </Field>
       </div>
+
+      {kind === "knockout" && stageMode === "custom" && (
+        <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }} className="flex flex-col gap-2">
+          <Field label="Tên vòng đấu">
+            <input style={inputStyle} placeholder="VD: Vòng 1/8, Vòng 1/16, Tứ kết…" value={customStage} onChange={(e) => setCustomStage(e.target.value)} maxLength={30} />
+          </Field>
+          <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11.5, color: C.muted }}>Gợi ý:</span>
+            {KNOCKOUT_STAGE_SUGGESTIONS.map((s) => (
+              <button
+                key={s} type="button" onClick={() => setCustomStage(s)}
+                style={{ ...btnGhost, padding: "3px 11px", fontSize: 12, borderRadius: 999 }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
         <div className="flex flex-col gap-2">
@@ -2459,7 +2511,6 @@ function GroupsPanel({ tournament, data, canManageGroups, canEnterMatch, canEdit
   const [err, setErr] = useState("");
   const groups = (data.groups || []).filter((g) => g.tournament === tournament.id);
   const tMatches = data.matches.filter((m) => m.tournament === tournament.id);
-  const groupMatches = tMatches.filter((m) => m.stage === "bang");
   const unassigned = tMatches.filter((m) => !m.stage);
 
   async function createGroup() {
@@ -2487,6 +2538,7 @@ function GroupsPanel({ tournament, data, canManageGroups, canEnterMatch, canEdit
             <GroupCard
               key={g.id} group={g} tournamentGroups={groups} matches={tMatches} players={data.players}
               canManage={canManageGroups} onUpdate={onUpdateGroup} onDelete={onDeleteGroup}
+              canEditMatches={canEditMatches} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
             />
           ))}
         </div>
@@ -2494,22 +2546,6 @@ function GroupsPanel({ tournament, data, canManageGroups, canEnterMatch, canEdit
 
       {canEnterMatch && groups.length > 0 && (
         <TournamentMatchForm tournament={tournament} players={data.players} groups={groups} kind="group" onAddMatch={onAddMatch} />
-      )}
-
-      <div style={{ fontWeight: 700, fontSize: 15, marginTop: 4 }}>Trận vòng bảng ({groupMatches.length})</div>
-      {groupMatches.length === 0 ? (
-        <div style={{ fontSize: 13, color: C.muted }}>Chưa có trận vòng bảng nào.</div>
-      ) : (
-        groups.filter((g) => groupMatches.some((m) => m.group === g.id)).map((g) => (
-          <div key={g.id} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 16px" }}>
-            {groupMatches.filter((m) => m.group === g.id).map((m) => (
-              <MatchRow
-                key={m.id} match={m} data={data} canManage={canEditMatches} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
-                showDate={false} stageBadge={{ text: `Bảng ${g.name}`, color: C.ink }}
-              />
-            ))}
-          </div>
-        ))
       )}
 
       {unassigned.length > 0 && (
@@ -2528,10 +2564,17 @@ function GroupsPanel({ tournament, data, canManageGroups, canEnterMatch, canEdit
 
 /* ---------- Tab "Vòng loại trực tiếp" (sơ đồ nhánh đấu) ---------- */
 function KnockoutPanel({ tournament, data, canEnterMatch, canEditMatches, onAddMatch, onEditMatch, onDeleteMatch }) {
-  const matches = data.matches.filter((m) => m.tournament === tournament.id && KNOCKOUT_STAGES.includes(m.stage));
+  const matches = data.matches.filter((m) => m.tournament === tournament.id && m.stage && m.stage !== "bang");
   const byStage = (s) => matches.filter((m) => m.stage === s).sort((x, y) => x.id - y.id);
-  const columns = [["vong_1_8"], ["tu_ket"], ["ban_ket"], ["chung_ket", "tranh_hang_ba"]]
-    .filter((stages) => stages.some((s) => byStage(s).length > 0));
+
+  // Thứ tự cột sơ đồ: các vòng đấu TỰ ĐẶT TÊN xếp theo thứ tự trận đầu tiên được nhập (trực quan,
+  // đúng như tiến trình thật của giải) — "Bán kết" và "Chung kết" luôn là 2 cột CUỐI CÙNG vì đây
+  // là 2 giai đoạn cố định của mọi giải loại trực tiếp.
+  const minIdOf = (s) => Math.min(...matches.filter((m) => m.stage === s).map((m) => m.id));
+  const customStages = [...new Set(matches.map((m) => m.stage))]
+    .filter((s) => s !== "ban_ket" && s !== "chung_ket")
+    .sort((sA, sB) => minIdOf(sA) - minIdOf(sB));
+  const stageOrder = [...customStages, "ban_ket", "chung_ket"].filter((s) => byStage(s).length > 0);
 
   const finalDone = byStage("chung_ket").find((m) => m.status === "completed");
   const champion = finalDone
@@ -2556,19 +2599,17 @@ function KnockoutPanel({ tournament, data, canEnterMatch, canEditMatches, onAddM
       )}
 
       {matches.length === 0 ? (
-        <EmptyState text="Chưa có trận loại trực tiếp nào — nhập trận ở nút “+ Nhập trận đấu” (Vòng 1/8, Tứ kết, Bán kết, Chung kết…)." />
+        <EmptyState text="Chưa có trận loại trực tiếp nào — nhập trận ở nút “+ Nhập trận đấu”, đặt tên vòng đấu tuỳ ý (Vòng 1/8, Vòng 1/16, Tứ kết…) hoặc chọn Bán kết/Chung kết." />
       ) : (
         <div className="tt-bracket">
-          {columns.map((stages) => (
-            <div key={stages[0]} className="tt-bracket-col">
-              {stages.filter((s) => byStage(s).length > 0).map((s) => (
-                <div key={s} className="flex flex-col gap-2">
-                  <div style={{ fontSize: 11.5, fontWeight: 800, color: s === "chung_ket" ? C.accent : C.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                    {STAGE_LABEL[s]}
-                  </div>
-                  {byStage(s).map((m) => <BracketMatchCard key={m.id} match={m} players={data.players} />)}
+          {stageOrder.map((s) => (
+            <div key={s} className="tt-bracket-col">
+              <div className="flex flex-col gap-2">
+                <div style={{ fontSize: 11.5, fontWeight: 800, color: s === "chung_ket" ? C.accent : C.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  {stageLabel(s)}
                 </div>
-              ))}
+                {byStage(s).map((m) => <BracketMatchCard key={m.id} match={m} players={data.players} />)}
+              </div>
             </div>
           ))}
         </div>
@@ -2578,10 +2619,10 @@ function KnockoutPanel({ tournament, data, canEnterMatch, canEditMatches, onAddM
         <>
           <div style={{ fontWeight: 700, fontSize: 15, marginTop: 4 }}>Quản lý trận (sửa / xóa)</div>
           <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 16px" }}>
-            {[...matches].sort((x, y) => KNOCKOUT_STAGES.indexOf(x.stage) - KNOCKOUT_STAGES.indexOf(y.stage) || x.id - y.id).map((m) => (
+            {[...matches].sort((x, y) => stageOrder.indexOf(x.stage) - stageOrder.indexOf(y.stage) || x.id - y.id).map((m) => (
               <MatchRow
                 key={m.id} match={m} data={data} canManage onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
-                showDate={false} stageBadge={{ text: STAGE_LABEL[m.stage], color: C.accent }}
+                showDate={false} stageBadge={{ text: stageLabel(m.stage), color: C.accent }}
               />
             ))}
           </div>
