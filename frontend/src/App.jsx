@@ -2347,8 +2347,8 @@ function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpd
             cursor: groupMatches.length === 0 ? "default" : "pointer", textAlign: "left",
           }}
         >
-          <span style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            Trận vòng bảng ({groupMatches.length})
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.muted, letterSpacing: 0.4 }}>
+            Trận vòng bảng ({groupMatches.length}) -Nhấn để xem-
           </span>
           {groupMatches.length > 0 && (
             <span
