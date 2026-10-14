@@ -135,6 +135,10 @@ class Match(models.Model):
     winner_side = models.CharField("Bên thắng", max_length=1, choices=SIDE_CHOICES, null=True, blank=True)
     delta_a = models.IntegerField("Thay đổi điểm A", default=0)
     delta_b = models.IntegerField("Thay đổi điểm B", default=0)
+    # Điểm chấp (chỉ mang tính hiển thị/ghi chú — VD "2-0-2" — KHÔNG ảnh hưởng đến cách tính Elo hiện tại).
+    # Chỉ nhập được khi tạo trận; giữ nguyên qua các lần sửa trận sau đó.
+    handicap_a = models.CharField("Điểm chấp VĐV A", max_length=20, blank=True, default="")
+    handicap_b = models.CharField("Điểm chấp VĐV B", max_length=20, blank=True, default="")
     date = models.DateField("Ngày diễn ra")
     created_at = models.DateTimeField(auto_now_add=True)
 

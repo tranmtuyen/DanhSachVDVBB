@@ -1,3 +1,5 @@
+import re
+
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -9,6 +11,16 @@ from .models import Match, Player, PointHistory, RankingConfig, Tournament, Tour
 
 
 from rest_framework.fields import empty as DRF_EMPTY
+
+HANDICAP_RE = re.compile(r"^\d{1,2}(-\d{1,2}){0,3}$")
+
+
+def _clean_handicap(value):
+    """Chuẩn hoá + kiểm tra định dạng điểm chấp (VD: '2-0-2'). Rỗng = không chấp điểm."""
+    value = (value or "").strip()
+    if value and not HANDICAP_RE.match(value):
+        raise serializers.ValidationError("Điểm chấp chỉ được nhập dạng số cách nhau bởi dấu gạch ngang, ví dụ: 2-0-2.")
+    return value
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -124,7 +136,7 @@ class MatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = Match
         fields = ["id", "tournament", "type", "mode", "status", "stage", "group", "player_a", "player_b", "player_a2", "player_b2",
-                  "sets_a", "sets_b", "winner_side", "delta_a", "delta_b", "date"]
+                  "sets_a", "sets_b", "winner_side", "delta_a", "delta_b", "handicap_a", "handicap_b", "date"]
         read_only_fields = ["type", "winner_side", "delta_a", "delta_b"]
 
 
@@ -140,7 +152,15 @@ class MatchCreateSerializer(serializers.Serializer):
     player_b2 = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, allow_null=True)
     sets_a = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     sets_b = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    handicap_a = serializers.CharField(required=False, allow_blank=True, default="", max_length=20)
+    handicap_b = serializers.CharField(required=False, allow_blank=True, default="", max_length=20)
     date = serializers.DateField(required=False)
+
+    def validate_handicap_a(self, value):
+        return _clean_handicap(value)
+
+    def validate_handicap_b(self, value):
+        return _clean_handicap(value)
 
     def validate(self, data):
         status = data.get("status", "completed")

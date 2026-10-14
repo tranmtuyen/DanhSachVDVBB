@@ -293,6 +293,8 @@ class MatchViewSet(viewsets.ModelViewSet):
                 sets_a=d.get("sets_a"),
                 sets_b=d.get("sets_b"),
                 date=d.get("date"),
+                handicap_a=d.get("handicap_a", ""),
+                handicap_b=d.get("handicap_b", ""),
             )
         except ValueError as e:
             raise ValidationError(str(e))

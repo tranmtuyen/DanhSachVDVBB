@@ -37,6 +37,7 @@ const FONT_DISPLAY = "'Be Vietnam Pro', sans-serif";
 const FONT_BODY = "'Be Vietnam Pro', sans-serif";
 
 const LOAI_GIAI_LABEL = { khong_chap: "Không chấp điểm", co_chap: "Có chấp điểm", giao_huu: "Giao hữu" };
+const HANDICAP_FORMAT_RE = /^\d{1,2}(-\d{1,2}){0,3}$/;
 const BONUS_LABEL = { vo_dich: "Vô địch", a_quan: "Á quân", hang_ba: "Hạng Ba", tu_ket: "Tứ kết" };
 
 /* ---------- Elo dùng để XEM TRƯỚC ở form (server mới là nơi tính chính thức) ---------- */
@@ -409,12 +410,21 @@ function PlayerCombobox({ players, value, onChange, placeholder, excludeIds }) {
   );
 }
 
-function MatchTeamsGrid({ leftP1, leftP2, rightP1, rightP2, middle }) {
+function HandicapTag({ value }) {
+  if (!value) return null;
+  return (
+    <span style={{ color: "#1E8E52", fontWeight: 800, fontSize: "0.92em", marginLeft: 5, whiteSpace: "nowrap" }}>
+      +{value}
+    </span>
+  );
+}
+
+function MatchTeamsGrid({ leftP1, leftP2, rightP1, rightP2, middle, leftHandicap, rightHandicap }) {
   const hasSecondRow = !!(leftP2 || rightP2);
-  const nameStyle = { textAlign: "left", color: C.nameColor, fontWeight: 700 };
+  const nameStyle = { textAlign: "left", color: C.nameColor, fontWeight: 700, overflowWrap: "anywhere" };
   return (
     <div className="tt-teams-grid" style={{ display: "grid", gridTemplateColumns: "minmax(120px,1fr) 78px minmax(120px,1fr)", width: "100%", alignItems: "center", rowGap: 1, columnGap: 10 }}>
-      <div className="tt-tg-1" style={nameStyle}>{leftP1?.name}</div>
+      <div className="tt-tg-1" style={nameStyle}>{leftP1?.name}<HandicapTag value={leftHandicap} /></div>
       <div
         className="tt-tg-mid tabular"
         style={{
@@ -424,7 +434,7 @@ function MatchTeamsGrid({ leftP1, leftP2, rightP1, rightP2, middle }) {
       >
         {middle}
       </div>
-      <div className="tt-tg-2" style={nameStyle}>{rightP1?.name}</div>
+      <div className="tt-tg-2" style={nameStyle}>{rightP1?.name}<HandicapTag value={rightHandicap} /></div>
       {hasSecondRow && (
         <>
           <div className="tt-tg-3" style={nameStyle}>{leftP2?.name}</div>
@@ -617,7 +627,7 @@ export default function App() {
     await refreshAll();
   }
 
-  async function addMatch({ tournamentId, mode, status, playerAId, playerBId, playerA2Id, playerB2Id, setsA, setsB, friendlyDate, stage, groupId }) {
+  async function addMatch({ tournamentId, mode, status, playerAId, playerBId, playerA2Id, playerB2Id, setsA, setsB, friendlyDate, stage, groupId, handicapA, handicapB }) {
     await apiPostJSON("/matches/", {
       tournament: tournamentId || null,
       mode: mode || "don",
@@ -626,6 +636,7 @@ export default function App() {
       player_a: playerAId, player_b: playerBId,
       player_a2: playerA2Id || null, player_b2: playerB2Id || null,
       sets_a: setsA ?? null, sets_b: setsB ?? null,
+      handicap_a: (handicapA || "").trim(), handicap_b: (handicapB || "").trim(),
       ...(friendlyDate ? { date: friendlyDate } : {}),
     });
     await refreshAll();
@@ -1782,6 +1793,8 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
   const asideLeft = perspective ? perspective.isASide : true;
   const leftPlayers = isDoubles ? (asideLeft ? [pA, pA2] : [pB, pB2]) : [asideLeft ? pA : pB];
   const rightPlayers = isDoubles ? (asideLeft ? [pB, pB2] : [pA, pA2]) : [asideLeft ? pB : pA];
+  const leftHandicap = asideLeft ? m.handicap_a : m.handicap_b;
+  const rightHandicap = asideLeft ? m.handicap_b : m.handicap_a;
 
   async function save(e) {
     e.preventDefault();
@@ -1868,6 +1881,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
           {m.status === "scheduled" ? (
             <MatchTeamsGrid
               leftP1={leftPlayers[0]} leftP2={leftPlayers[1]} rightP1={rightPlayers[0]} rightP2={rightPlayers[1]}
+              leftHandicap={leftHandicap} rightHandicap={rightHandicap}
               middle="(sắp diễn ra)"
             />
           ) : perspective ? (
@@ -1892,12 +1906,14 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
               </span>
               <MatchTeamsGrid
                 leftP1={leftPlayers[0]} leftP2={leftPlayers[1]} rightP1={rightPlayers[0]} rightP2={rightPlayers[1]}
+                leftHandicap={leftHandicap} rightHandicap={rightHandicap}
                 middle={perspective.scoreText}
               />
             </>
           ) : (
             <MatchTeamsGrid
               leftP1={leftPlayers[0]} leftP2={leftPlayers[1]} rightP1={rightPlayers[0]} rightP2={rightPlayers[1]}
+              leftHandicap={leftHandicap} rightHandicap={rightHandicap}
               middle={`${m.sets_a}–${m.sets_b}`}
             />
           )}
@@ -2281,6 +2297,7 @@ function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) 
   const [a, setA] = useState(""); const [a2, setA2] = useState("");
   const [b, setB] = useState(""); const [b2, setB2] = useState("");
   const [setsA, setSetsA] = useState(3); const [setsB, setSetsB] = useState(0);
+  const [handicapA, setHandicapA] = useState(""); const [handicapB, setHandicapB] = useState("");
   const [msg, setMsg] = useState(""); const [error, setError] = useState("");
 
   const gid = groupId || (groups[0] ? String(groups[0].id) : "");
@@ -2298,6 +2315,8 @@ function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) 
     const ids = mode === "doi" ? [a, a2, b, b2] : [a, b];
     if (ids.some((x) => !x)) { setError("Hãy chọn đủ VĐV cho trận đấu."); return; }
     if (new Set(ids).size !== ids.length) { setError("Các VĐV trong trận phải khác nhau."); return; }
+    if (handicapA.trim() && !HANDICAP_FORMAT_RE.test(handicapA.trim())) { setError("Điểm chấp VĐV A không đúng định dạng (VD: 2-0-2)."); return; }
+    if (handicapB.trim() && !HANDICAP_FORMAT_RE.test(handicapB.trim())) { setError("Điểm chấp VĐV B không đúng định dạng (VD: 2-0-2)."); return; }
     try {
       await onAddMatch({
         tournamentId: tournament.id, mode, status,
@@ -2305,9 +2324,10 @@ function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) 
         playerA2Id: mode === "doi" ? Number(a2) : undefined, playerB2Id: mode === "doi" ? Number(b2) : undefined,
         setsA: scheduled ? null : Number(setsA), setsB: scheduled ? null : Number(setsB),
         stage: kind === "group" ? "bang" : stage, groupId: kind === "group" ? Number(gid) : null,
+        handicapA: handicapA.trim(), handicapB: handicapB.trim(),
       });
       setMsg(scheduled ? "Đã tạo trận sắp diễn ra." : "Đã lưu kết quả trận đấu.");
-      resetPlayers(); setSetsA(3); setSetsB(0);
+      resetPlayers(); setSetsA(3); setSetsB(0); setHandicapA(""); setHandicapB("");
       setTimeout(() => setMsg(""), 3000);
     } catch (err) {
       setError(err.message || "Có lỗi khi lưu trận đấu.");
@@ -2377,6 +2397,14 @@ function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) 
         </div>
       )}
 
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+        <Field label="Điểm chấp — bên A (nếu có)"><input style={inputStyle} placeholder="VD: 2-0-2" value={handicapA} onChange={(e) => setHandicapA(e.target.value)} /></Field>
+        <Field label="Điểm chấp — bên B (nếu có)"><input style={inputStyle} placeholder="VD: 2-0-2" value={handicapB} onChange={(e) => setHandicapB(e.target.value)} /></Field>
+      </div>
+      <div style={{ fontSize: 11.5, color: C.muted, marginTop: -6 }}>
+        Chỉ nhập cho bên được chấp điểm, để trống nếu không chấp. Điểm chấp chỉ mang tính ghi chú hiển thị, không ảnh hưởng cách tính điểm.
+      </div>
+
       {kind === "group" && pool.length < 2 && (
         <div style={{ fontSize: 13, color: C.muted }}>Bảng này chưa đủ 2 VĐV — hãy bấm "Sửa VĐV" ở thẻ bảng để thêm VĐV.</div>
       )}
@@ -2398,7 +2426,7 @@ function BracketMatchCard({ match: m, players }) {
   const aWon = done && m.winner_side === "A";
   const bWon = done && m.winner_side === "B";
 
-  const row = (names, won, sets) => (
+  const row = (names, won, sets, handicap) => (
     <div
       className="flex items-center justify-between gap-2"
       style={{
@@ -2406,16 +2434,16 @@ function BracketMatchCard({ match: m, players }) {
         color: won ? C.pillUpText : (done ? C.muted : C.nameColor), fontWeight: won ? 800 : 600, fontSize: 13.5,
       }}
     >
-      <span style={{ overflowWrap: "anywhere" }}>{names.join(" & ") || "—"}</span>
+      <span style={{ overflowWrap: "anywhere" }}>{names.join(" & ") || "—"}<HandicapTag value={handicap} /></span>
       <span className="tabular" style={{ fontWeight: 800 }}>{done ? sets : "–"}</span>
     </div>
   );
 
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
-      {row(aNames, aWon, m.sets_a)}
+      {row(aNames, aWon, m.sets_a, m.handicap_a)}
       <div style={{ borderTop: `1px solid ${C.line}` }} />
-      {row(bNames, bWon, m.sets_b)}
+      {row(bNames, bWon, m.sets_b, m.handicap_b)}
       {!done && (
         <div style={{ padding: "3px 10px", background: C.gold + "22", color: C.gold, fontSize: 10.5, fontWeight: 700, textAlign: "center" }}>SẮP DIỄN RA</div>
       )}
@@ -2787,6 +2815,8 @@ function EnterMatchTab({ data, onAddMatch }) {
   const [playerB2Id, setPlayerB2Id] = useState("");
   const [setsA, setSetsA] = useState(3);
   const [setsB, setSetsB] = useState(0);
+  const [handicapA, setHandicapA] = useState("");
+  const [handicapB, setHandicapB] = useState("");
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
 
@@ -2812,6 +2842,8 @@ function EnterMatchTab({ data, onAddMatch }) {
     setError("");
     if (!isScheduled && Number(setsA) === Number(setsB)) return;
     if (kind === "giai" && !tournamentId) return;
+    if (handicapA.trim() && !HANDICAP_FORMAT_RE.test(handicapA.trim())) { setError("Điểm chấp VĐV/Đội A không đúng định dạng (VD: 2-0-2)."); return; }
+    if (handicapB.trim() && !HANDICAP_FORMAT_RE.test(handicapB.trim())) { setError("Điểm chấp VĐV/Đội B không đúng định dạng (VD: 2-0-2)."); return; }
     try {
       if (mode === "doi") {
         const ids = [playerAId, playerA2Id, playerBId, playerB2Id];
@@ -2824,6 +2856,7 @@ function EnterMatchTab({ data, onAddMatch }) {
           playerAId: Number(playerAId), playerA2Id: Number(playerA2Id),
           playerBId: Number(playerBId), playerB2Id: Number(playerB2Id),
           setsA: isScheduled ? null : Number(setsA), setsB: isScheduled ? null : Number(setsB),
+          handicapA: handicapA.trim(), handicapB: handicapB.trim(),
         });
         setMsg(isScheduled
           ? `Đã tạo trận sắp diễn ra: ${pA.name} & ${pA2.name} vs ${pB.name} & ${pB2.name}`
@@ -2837,13 +2870,14 @@ function EnterMatchTab({ data, onAddMatch }) {
           status: matchStatus,
           playerAId: Number(playerAId), playerBId: Number(playerBId),
           setsA: isScheduled ? null : Number(setsA), setsB: isScheduled ? null : Number(setsB),
+          handicapA: handicapA.trim(), handicapB: handicapB.trim(),
         });
         setMsg(isScheduled
           ? `Đã tạo trận sắp diễn ra: ${pA.name} vs ${pB.name}`
           : `Đã lưu kết quả: ${pA.name} ${setsA}–${setsB} ${pB.name}`);
         setPlayerAId(""); setPlayerBId("");
       }
-      setSetsA(3); setSetsB(0);
+      setSetsA(3); setSetsB(0); setHandicapA(""); setHandicapB("");
       setTimeout(() => setMsg(""), 3000);
     } catch (err) {
       setError(err.message || "Có lỗi khi lưu trận đấu.");
@@ -2918,6 +2952,18 @@ function EnterMatchTab({ data, onAddMatch }) {
             </Field>
           )}
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Field label={`Điểm chấp — ${mode === "doi" ? "Đội A" : "VĐV A"} (nếu có)`}>
+          <input style={inputStyle} placeholder="VD: 2-0-2" value={handicapA} onChange={(e) => setHandicapA(e.target.value)} />
+        </Field>
+        <Field label={`Điểm chấp — ${mode === "doi" ? "Đội B" : "VĐV B"} (nếu có)`}>
+          <input style={inputStyle} placeholder="VD: 2-0-2" value={handicapB} onChange={(e) => setHandicapB(e.target.value)} />
+        </Field>
+      </div>
+      <div style={{ fontSize: 11.5, color: C.muted, marginTop: -10 }}>
+        Chỉ nhập cho bên được chấp điểm, để trống nếu không chấp. Điểm chấp chỉ mang tính ghi chú hiển thị, không ảnh hưởng cách tính điểm.
       </div>
 
       {isScheduled ? (

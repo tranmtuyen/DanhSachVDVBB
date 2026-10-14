@@ -100,7 +100,8 @@ def _reason_prefix(tournament, loai, is_doubles):
 
 
 def record_match(*, tournament, mode="don", player_a, player_b, player_a2=None, player_b2=None,
-                  sets_a=None, sets_b=None, date=None, status="completed", stage="", group=None):
+                  sets_a=None, sets_b=None, date=None, status="completed", stage="", group=None,
+                  handicap_a="", handicap_b=""):
     """Tạo 1 trận đấu (đơn hoặc đôi), tự tính điểm, cập nhật rating, ghi lịch sử điểm.
     status="scheduled": trận sắp diễn ra, chưa có tỷ số, không tính điểm — chỉ ghi nhận lịch."""
     loai = tournament.type if tournament else Match.GIAO_HUU
@@ -122,6 +123,7 @@ def record_match(*, tournament, mode="don", player_a, player_b, player_a2=None, 
             player_b2=player_b2 if is_doubles else None,
             sets_a=None, sets_b=None, winner_side=None,
             delta_a=0, delta_b=0, date=date,
+            handicap_a=handicap_a or "", handicap_b=handicap_b or "",
         )
         return match
 
@@ -142,6 +144,7 @@ def record_match(*, tournament, mode="don", player_a, player_b, player_a2=None, 
         player_b2=player_b2 if is_doubles else None,
         sets_a=sets_a, sets_b=sets_b, winner_side=winner_side,
         delta_a=delta_a, delta_b=delta_b, date=date,
+        handicap_a=handicap_a or "", handicap_b=handicap_b or "",
     )
 
     _apply_and_log(match, is_doubles=is_doubles)
