@@ -65,6 +65,13 @@ function fmtDate(d) {
 }
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
+/* Hiển thị khoảng ngày diễn ra của giải đấu: 1 ngày nếu date_to trống/giống date, ngược lại "từ – đến". */
+function tournamentDateRangeText(t) {
+  if (!t?.date) return "";
+  if (!t.date_to || t.date_to === t.date) return fmtDate(t.date);
+  return `${fmtDate(t.date)} – ${fmtDate(t.date_to)}`;
+}
+
 /* Bỏ dấu tiếng Việt + chữ thường, dùng để tìm kiếm gần đúng không phân biệt dấu/hoa-thường */
 const MAX_PHOTO_SIZE = 1024 * 1024; // 1MB — khớp với giới hạn ở backend
 
@@ -600,8 +607,8 @@ export default function App() {
     await refreshAll();
   }
 
-  async function addTournament({ name, type, date }) {
-    const created = await apiPostJSON("/tournaments/", { name, type, date });
+  async function addTournament({ name, type, date, dateTo }) {
+    const created = await apiPostJSON("/tournaments/", { name, type, date, date_to: dateTo || date });
     await refreshAll();
     return created;
   }
@@ -766,6 +773,23 @@ export default function App() {
           .tt-tg-2 { order: 4; }
           .tt-tg-4 { order: 5; }
           .tt-lb-th, .tt-lb-td { padding: 8px 8px !important; font-size: 12.5px !important; }
+        }
+        /* Thẻ trận đấu cần xếp dọc (mobile layout) khi KHUNG CHỨA của nó hẹp — không phải khi màn
+           hình hẹp. Ví dụ: 3 thẻ Bảng đấu nằm cạnh nhau trên màn hình desktop rộng vẫn rất hẹp mỗi
+           thẻ, nên @media (theo viewport) không bắt được — @container (theo độ rộng khung chứa thật
+           sự) mới xử lý triệt để. .tt-matchlist đánh dấu khung chứa danh sách trận đấu (bọc quanh
+           các MatchRow); khi khung đó hẹp dưới 480px, các trận bên trong tự xếp dọc dù màn hình to. */
+        .tt-matchlist { container-type: inline-size; }
+        @container (max-width: 480px) {
+          .tt-match-row { flex-direction: column; align-items: stretch !important; gap: 6px !important; }
+          .tt-match-right { width: 100%; justify-content: space-between !important; }
+          .tt-teams-grid { grid-template-columns: 1fr !important; row-gap: 3px !important; }
+          .tt-teams-grid > div { grid-column: 1 !important; grid-row: auto !important; text-align: center !important; }
+          .tt-tg-1 { order: 1; }
+          .tt-tg-3 { order: 2; }
+          .tt-tg-mid { order: 3; margin: 3px 0; }
+          .tt-tg-2 { order: 4; }
+          .tt-tg-4 { order: 5; }
         }
         .tt-sidebar { width: 232px; flex-shrink: 0; transition: width 160ms ease; }
         .tt-sidebar-label { display: inline; }
@@ -1221,7 +1245,7 @@ function AchievementRow({ result: r, tournament, otherNames, isLast }) {
         </div>
         <div className="flex items-baseline gap-2" style={{ marginTop: 2 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: C.nameColor }}>{tournament?.name || "Giải đấu"}</span>
-          {tournament?.date && <span style={{ fontSize: 12, color: C.muted }}>{fmtDate(tournament.date)}</span>}
+          {tournament?.date && <span style={{ fontSize: 12, color: C.muted }}>{tournamentDateRangeText(tournament)}</span>}
         </div>
         {otherNames.length > 0 && (
           <div style={{ marginTop: 8 }}>
@@ -1419,7 +1443,7 @@ function PlayerDetail({ player, history, matches, tournaments, results, allPlaye
               const linkedMatch = h.match ? matches.find((m) => m.id === h.match) : null;
               if (linkedMatch) {
                 return (
-                  <div key={h.id} style={{ padding: "0 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                  <div key={h.id} className="tt-matchlist" style={{ padding: "0 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
                     <MatchRow
                       match={linkedMatch}
                       data={{ players: allPlayers, tournaments }}
@@ -1664,7 +1688,7 @@ function ProfileTab({ currentUser, players, matches, tournaments, results, histo
                   const linkedMatch = h.match ? matches.find((m) => m.id === h.match) : null;
                   if (linkedMatch) {
                     return (
-                      <div key={h.id} style={{ padding: "0 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                      <div key={h.id} className="tt-matchlist" style={{ padding: "0 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
                         <MatchRow
                           match={linkedMatch}
                           data={{ players, tournaments }}
@@ -1918,7 +1942,8 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
             />
           )}
         </div>
-        {showDate && <div style={{ fontSize: 12, color: C.muted }}>{fmtDate(m.date)}</div>}
+        {/* Trận thuộc giải đấu: không hiển thị ngày riêng — mặc định diễn ra trong khoảng ngày của giải đấu. */}
+        {showDate && !m.tournament && <div style={{ fontSize: 12, color: C.muted }}>{fmtDate(m.date)}</div>}
         {perspective && <div style={{ fontSize: 11.5, color: C.muted, opacity: 0.75, marginTop: 1 }}>{perspective.contextLabel}</div>}
       </div>
       <div className="tt-match-right flex items-center gap-3">
@@ -1942,6 +1967,7 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, can
   const [name, setName] = useState("");
   const [type, setType] = useState("khong_chap");
   const [date, setDate] = useState(todayStr());
+  const [dateTo, setDateTo] = useState(todayStr());
   const [expanded, setExpanded] = useState(null);
   const [yearFilter, setYearFilter] = useState("all");
 
@@ -1959,8 +1985,9 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, can
   function submit(e) {
     e.preventDefault();
     if (!name.trim()) return;
-    Promise.resolve(onAddTournament({ name: name.trim(), type, date })).then((created) => { if (created?.id) setExpanded(created.id); });
-    setName(""); setType("khong_chap"); setDate(todayStr()); setOpen(false);
+    const finalDateTo = dateTo && dateTo >= date ? dateTo : date;
+    Promise.resolve(onAddTournament({ name: name.trim(), type, date, dateTo: finalDateTo })).then((created) => { if (created?.id) setExpanded(created.id); });
+    setName(""); setType("khong_chap"); setDate(todayStr()); setDateTo(todayStr()); setOpen(false);
   }
 
   return (
@@ -1971,7 +1998,7 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, can
             <button style={btnPrimary} onClick={() => setOpen(true)}>+ Tạo giải đấu</button>
           ) : (
             <form onSubmit={submit} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 16 }} className="flex flex-col gap-3">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <Field label="Tên giải"><input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} required /></Field>
                 <Field label="Loại giải">
                   <select style={inputStyle} value={type} onChange={(e) => setType(e.target.value)}>
@@ -1979,7 +2006,22 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, can
                     <option value="co_chap">Có chấp điểm</option>
                   </select>
                 </Field>
-                <Field label="Ngày tổ chức"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Từ ngày">
+                  <input
+                    type="date" style={inputStyle} value={date}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDate(v);
+                      // Mặc định "Đến ngày" đi theo "Từ ngày" cho tới khi người dùng tự sửa (giải 1 ngày là phổ biến nhất).
+                      if (!dateTo || dateTo < v) setDateTo(v);
+                    }}
+                  />
+                </Field>
+                <Field label="Đến ngày">
+                  <input type="date" style={inputStyle} value={dateTo} min={date} onChange={(e) => setDateTo(e.target.value)} />
+                </Field>
               </div>
               <div className="flex gap-2">
                 <button type="submit" style={btnPrimary}>Tạo giải</button>
@@ -2299,7 +2341,7 @@ function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpd
         {groupMatches.length === 0 ? (
           <div style={{ padding: "4px 14px 14px", fontSize: 12.5, color: C.muted }}>Chưa có trận nào trong bảng này.</div>
         ) : (
-          <div style={{ padding: "0 14px 6px" }}>
+          <div className="tt-matchlist" style={{ padding: "0 14px 6px" }}>
             {groupMatches.map((m) => (
               <MatchRow
                 key={m.id} match={m} data={matchData} canManage={canEditMatches}
@@ -2551,7 +2593,7 @@ function GroupsPanel({ tournament, data, canManageGroups, canEnterMatch, canEdit
       {unassigned.length > 0 && (
         <>
           <div style={{ fontWeight: 700, fontSize: 15, marginTop: 4 }}>Trận chưa phân vòng/bảng ({unassigned.length})</div>
-          <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 16px" }}>
+          <div className="tt-matchlist" style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 16px" }}>
             {unassigned.map((m) => (
               <MatchRow key={m.id} match={m} data={data} canManage={canEditMatches} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate={false} />
             ))}
@@ -2618,7 +2660,7 @@ function KnockoutPanel({ tournament, data, canEnterMatch, canEditMatches, onAddM
       {canEditMatches && matches.length > 0 && (
         <>
           <div style={{ fontWeight: 700, fontSize: 15, marginTop: 4 }}>Quản lý trận (sửa / xóa)</div>
-          <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 16px" }}>
+          <div className="tt-matchlist" style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 16px" }}>
             {[...matches].sort((x, y) => stageOrder.indexOf(x.stage) - stageOrder.indexOf(y.stage) || x.id - y.id).map((m) => (
               <MatchRow
                 key={m.id} match={m} data={data} canManage onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
@@ -2726,7 +2768,7 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
             <div style={{ fontSize: 20, fontWeight: 800, fontFamily: FONT_DISPLAY, overflowWrap: "anywhere" }}>{t.name}</div>
             <div className="flex items-center gap-2" style={{ marginTop: 4, flexWrap: "wrap" }}>
               <TypeTag type={t.type} />
-              <span style={{ fontSize: 12.5, color: C.muted }}>{fmtDate(t.date)}</span>
+              <span style={{ fontSize: 12.5, color: C.muted }}>{tournamentDateRangeText(t)}</span>
               <span style={{ fontSize: 12.5, color: isOpen ? "#1E8E52" : C.muted, fontWeight: 600 }}>{isOpen ? "Đang diễn ra" : "Đã kết thúc"}</span>
             </div>
           </div>
@@ -2793,7 +2835,7 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
           <div style={{ fontWeight: 700 }}>{t.name}</div>
           <div className="flex items-center gap-2" style={{ marginTop: 4, flexWrap: "wrap" }}>
             <TypeTag type={t.type} />
-            <span style={{ fontSize: 12.5, color: C.muted }}>{fmtDate(t.date)}</span>
+            <span style={{ fontSize: 12.5, color: C.muted }}>{tournamentDateRangeText(t)}</span>
             <span style={{ fontSize: 12.5, color: t.status === "da_ket_thuc" ? C.muted : "#1E8E52", fontWeight: 600 }}>
               {t.status === "da_ket_thuc" ? "Đã kết thúc" : "Đang diễn ra"}
             </span>
@@ -3075,7 +3117,7 @@ function FriendlyMatchesTab({ data, canManage, onEditMatch, onDeleteMatch }) {
       {friendly.length === 0 ? (
         <EmptyState text={`Không có trận giao hữu nào trong năm ${yearFilter}.`} />
       ) : (
-        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "0 16px" }}>
+        <div className="tt-matchlist" style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "0 16px" }}>
           {friendly.map((m) => (
             <MatchRow key={m.id} match={m} data={data} canManage={canManage} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate />
           ))}

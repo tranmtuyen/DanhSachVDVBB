@@ -127,9 +127,21 @@ class PlayerPhotoSerializer(serializers.ModelSerializer):
 
 
 class TournamentSerializer(serializers.ModelSerializer):
+    # Nếu không gửi "date_to" (hoặc gửi null): coi như giải 1 ngày — tự lấy bằng "date" (xem validate()).
+    date_to = serializers.DateField(required=False, allow_null=True)
+
     class Meta:
         model = Tournament
-        fields = ["id", "name", "type", "date", "status"]
+        fields = ["id", "name", "type", "date", "date_to", "status"]
+
+    def validate(self, data):
+        date = data.get("date", self.instance.date if self.instance else None)
+        date_to = data.get("date_to", self.instance.date_to if self.instance else None)
+        if not date_to:
+            data["date_to"] = date
+        elif date and date_to < date:
+            raise serializers.ValidationError({"date_to": "“Đến ngày” không được trước “Từ ngày”."})
+        return data
 
 
 class MatchSerializer(serializers.ModelSerializer):

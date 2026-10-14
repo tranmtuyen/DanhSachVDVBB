@@ -65,8 +65,15 @@ class Tournament(models.Model):
 
     name = models.CharField("Tên giải", max_length=200)
     type = models.CharField("Loại giải", max_length=20, choices=LOAI_GIAI_CHOICES, default=KHONG_CHAP)
-    date = models.DateField("Ngày tổ chức")
+    date = models.DateField("Từ ngày")
+    # Giải đấu nhập trước khi có trường này (hoặc nhập không chỉ định): coi như diễn ra đúng 1 ngày —
+    # "Đến ngày" lấy giống "Từ ngày" (xem migration 0012 backfill dữ liệu cũ + services.record_tournament).
+    date_to = models.DateField("Đến ngày", null=True, blank=True)
     status = models.CharField("Trạng thái", max_length=20, choices=STATUS_CHOICES, default="dang_dien_ra")
+
+    @property
+    def effective_date_to(self):
+        return self.date_to or self.date
 
     class Meta:
         verbose_name = "Giải đấu"
