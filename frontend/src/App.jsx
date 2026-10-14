@@ -2247,6 +2247,7 @@ function groupStandings(group, matches, players) {
 /* ---------- Thẻ 1 bảng đấu (giao diện dạng lưới, giống mẫu "Bảng A") ---------- */
 function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpdate, onDelete, canEditMatches, onEditMatch, onDeleteMatch }) {
   const [editing, setEditing] = useState(false);
+  const [showMatches, setShowMatches] = useState(false);
   const [err, setErr] = useState("");
   const rows = groupStandings(group, matches, players);
   const usedIds = tournamentGroups.flatMap((g) => g.players);
@@ -2335,12 +2336,35 @@ function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpd
       )}
 
       <div style={{ borderTop: `1px solid ${C.line}` }}>
-        <div style={{ padding: "10px 14px 2px", fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>
-          Trận vòng bảng ({groupMatches.length})
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowMatches((v) => !v)}
+          disabled={groupMatches.length === 0}
+          aria-expanded={showMatches}
+          className="flex items-center justify-between"
+          style={{
+            width: "100%", padding: "10px 14px", background: "transparent", border: "none",
+            cursor: groupMatches.length === 0 ? "default" : "pointer", textAlign: "left",
+          }}
+        >
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            Trận vòng bảng ({groupMatches.length})
+          </span>
+          {groupMatches.length > 0 && (
+            <span
+              aria-hidden="true"
+              style={{
+                fontSize: 11, color: C.muted, transition: "transform 160ms ease",
+                transform: showMatches ? "rotate(180deg)" : "rotate(0deg)",
+              }}
+            >
+              ▾
+            </span>
+          )}
+        </button>
         {groupMatches.length === 0 ? (
-          <div style={{ padding: "4px 14px 14px", fontSize: 12.5, color: C.muted }}>Chưa có trận nào trong bảng này.</div>
-        ) : (
+          <div style={{ padding: "0 14px 14px", fontSize: 12.5, color: C.muted }}>Chưa có trận nào trong bảng này.</div>
+        ) : !showMatches ? null : (
           <div className="tt-matchlist" style={{ padding: "0 14px 6px" }}>
             {groupMatches.map((m) => (
               <MatchRow
