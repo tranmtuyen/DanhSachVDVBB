@@ -791,6 +791,9 @@ export default function App() {
           .tt-tg-2 { order: 4; }
           .tt-tg-4 { order: 5; }
         }
+        .tt-group-toggle { transition: background 120ms ease, border-color 120ms ease; }
+        .tt-group-toggle:hover:not(:disabled) { background: ${C.ink}0F !important; }
+        .tt-group-toggle:disabled { cursor: default; }
         .tt-sidebar { width: 232px; flex-shrink: 0; transition: width 160ms ease; }
         .tt-sidebar-label { display: inline; }
         .tt-mobile-toggle { display: none; }
@@ -2341,20 +2344,27 @@ function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpd
           onClick={() => setShowMatches((v) => !v)}
           disabled={groupMatches.length === 0}
           aria-expanded={showMatches}
-          className="flex items-center justify-between"
+          className="tt-group-toggle flex items-center justify-between"
           style={{
-            width: "100%", padding: "10px 14px", background: "transparent", border: "none",
-            cursor: groupMatches.length === 0 ? "default" : "pointer", textAlign: "left",
+            width: "100%", padding: "11px 14px", background: showMatches ? C.ink + "0F" : "transparent",
+            border: "none", borderRadius: 0,
+            cursor: groupMatches.length === 0 ? "default" : "pointer", textAlign: "left", gap: 10,
           }}
         >
-          <span style={{ fontSize: 12, fontWeight: 700, color: C.muted, letterSpacing: 0.4 }}>
-            Trận vòng bảng ({groupMatches.length}) -Nhấn để xem-
+          <span style={{ fontSize: 13, fontWeight: 700, color: groupMatches.length === 0 ? C.muted : C.ink }}>
+            {groupMatches.length === 0
+              ? "Trận vòng bảng (0)"
+              : showMatches ? `Đang xem ${groupMatches.length} trận đấu` : `Xem chi tiết ${groupMatches.length} trận đấu`}
           </span>
           {groupMatches.length > 0 && (
             <span
               aria-hidden="true"
               style={{
-                fontSize: 11, color: C.muted, transition: "transform 160ms ease",
+                width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: showMatches ? C.ink : C.ink + "1A",
+                color: showMatches ? "#fff" : C.ink,
+                fontSize: 11, lineHeight: 1, transition: "transform 160ms ease, background 120ms ease, color 120ms ease",
                 transform: showMatches ? "rotate(180deg)" : "rotate(0deg)",
               }}
             >
