@@ -2802,7 +2802,7 @@ function LegacyKnockoutView({ matches, data, canEditMatches, onEditMatch, onDele
 }
 
 /* ---------- 1 ô trong sơ đồ: trống / miễn đấu (BYE) / đã có trận ---------- */
-function KnockoutSlotCard({ slot, allSlots, canFill, canOverride, onOpenFill }) {
+function KnockoutSlotCard({ slot, allSlots, players, canFill, canOverride, onOpenFill }) {
   const hasMatch = !!slot.match;
   const hasBye = !!slot.bye_player_name;
   const filled = hasMatch || hasBye;
@@ -2815,7 +2815,7 @@ function KnockoutSlotCard({ slot, allSlots, canFill, canOverride, onOpenFill }) 
   if (hasMatch) {
     return (
       <div style={{ position: "relative" }}>
-        <BracketMatchCard match={slot.match} players={[]} />
+        <BracketMatchCard match={slot.match} players={players} />
         {canOverride && (
           <button
             type="button" aria-label="Sửa ô này" onClick={onOpenFill}
@@ -2887,7 +2887,8 @@ function KnockoutSlotCard({ slot, allSlots, canFill, canOverride, onOpenFill }) 
 }
 
 /* ---------- Popup xếp cặp 1 ô sơ đồ: trận đấu thật HOẶC miễn đấu (BYE) ---------- */
-function SlotFillModal({ slot, players, suggested, onClose, onSetBye, onSetMatch, onClear, canClear }) {
+function SlotFillModal({ slot, players, suggested, excludeIds, onClose, onSetBye, onSetMatch, onClear, canClear }) {
+  const roundExcludeIds = excludeIds || [];
   const existingMatch = slot.match;
   const isBye = !!slot.bye_player_name;
   const [fillType, setFillType] = useState(isBye ? "bye" : "match");
@@ -2977,11 +2978,11 @@ function SlotFillModal({ slot, players, suggested, onClose, onSetBye, onSetMatch
             {fillType === "bye" ? (
               <div className="flex flex-col gap-2">
                 <Field label={mode === "doi" ? "Cặp miễn đấu — VĐV 1" : "VĐV miễn đấu"}>
-                  <PlayerCombobox players={players} value={a} onChange={setA} excludeIds={[Number(a2)].filter(Boolean)} />
+                  <PlayerCombobox players={players} value={a} onChange={setA} excludeIds={[Number(a2), ...roundExcludeIds].filter(Boolean)} />
                 </Field>
                 {mode === "doi" && (
                   <Field label="Cặp miễn đấu — VĐV 2">
-                    <PlayerCombobox players={players} value={a2} onChange={setA2} excludeIds={[Number(a)].filter(Boolean)} />
+                    <PlayerCombobox players={players} value={a2} onChange={setA2} excludeIds={[Number(a), ...roundExcludeIds].filter(Boolean)} />
                   </Field>
                 )}
                 <div style={{ fontSize: 11.5, color: C.muted }}>VĐV/cặp này coi như thắng ngay, vào thẳng vòng sau — không tính điểm Elo.</div>
@@ -2990,12 +2991,12 @@ function SlotFillModal({ slot, players, suggested, onClose, onSetBye, onSetMatch
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
                   <div className="flex flex-col gap-2">
-                    <Field label={mode === "doi" ? "Đội A — VĐV 1" : "VĐV A"}><PlayerCombobox players={players} value={a} onChange={setA} excludeIds={[Number(b), Number(a2), Number(b2)].filter(Boolean)} /></Field>
-                    {mode === "doi" && <Field label="Đội A — VĐV 2"><PlayerCombobox players={players} value={a2} onChange={setA2} excludeIds={[Number(a), Number(b), Number(b2)].filter(Boolean)} /></Field>}
+                    <Field label={mode === "doi" ? "Đội A — VĐV 1" : "VĐV A"}><PlayerCombobox players={players} value={a} onChange={setA} excludeIds={[Number(b), Number(a2), Number(b2), ...roundExcludeIds].filter(Boolean)} /></Field>
+                    {mode === "doi" && <Field label="Đội A — VĐV 2"><PlayerCombobox players={players} value={a2} onChange={setA2} excludeIds={[Number(a), Number(b), Number(b2), ...roundExcludeIds].filter(Boolean)} /></Field>}
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Field label={mode === "doi" ? "Đội B — VĐV 1" : "VĐV B"}><PlayerCombobox players={players} value={b} onChange={setB} excludeIds={[Number(a), Number(a2), Number(b2)].filter(Boolean)} /></Field>
-                    {mode === "doi" && <Field label="Đội B — VĐV 2"><PlayerCombobox players={players} value={b2} onChange={setB2} excludeIds={[Number(a), Number(a2), Number(b)].filter(Boolean)} /></Field>}
+                    <Field label={mode === "doi" ? "Đội B — VĐV 1" : "VĐV B"}><PlayerCombobox players={players} value={b} onChange={setB} excludeIds={[Number(a), Number(a2), Number(b2), ...roundExcludeIds].filter(Boolean)} /></Field>
+                    {mode === "doi" && <Field label="Đội B — VĐV 2"><PlayerCombobox players={players} value={b2} onChange={setB2} excludeIds={[Number(a), Number(a2), Number(b), ...roundExcludeIds].filter(Boolean)} /></Field>}
                   </div>
                 </div>
 
@@ -3133,7 +3134,7 @@ function KnockoutPanel({
             <div className="flex flex-col gap-2">
               {slotsOf(r).map((slot) => (
                 <KnockoutSlotCard
-                  key={slot.id} slot={slot} allSlots={slots}
+                  key={slot.id} slot={slot} allSlots={slots} players={data.players}
                   canFill={canEnterMatch} canOverride={canEditMatches}
                   onOpenFill={() => setFillSlotId(slot.id)}
                 />
@@ -3153,6 +3154,10 @@ function KnockoutPanel({
             const fb = slots.find((s) => s.round_no === fillSlot.round_no - 1 && s.slot_index === fillSlot.slot_index * 2 + 1);
             return { aId: fa?.winner_player_id, a2Id: fa?.winner_player2_id, bId: fb?.winner_player_id, b2Id: fb?.winner_player2_id };
           })()}
+          excludeIds={slots
+            .filter((s) => s.round_no === fillSlot.round_no && s.id !== fillSlot.id)
+            .flatMap((s) => (s.match ? [s.match.player_a, s.match.player_a2, s.match.player_b, s.match.player_b2] : [s.bye_player, s.bye_player2]))
+            .filter(Boolean)}
           onClose={() => setFillSlotId(null)}
           onSetBye={onSetSlotBye} onSetMatch={onSetSlotMatch} onClear={onClearSlot}
           canClear={canEditMatches}
