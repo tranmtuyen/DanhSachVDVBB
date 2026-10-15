@@ -7,6 +7,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Count
 from django.utils import timezone
 from rest_framework import permissions, viewsets
 from rest_framework.authtoken.models import Token
@@ -15,11 +16,14 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from . import services
-from .models import KnockoutSlot, LoginAttempt, Match, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
+from .models import (
+    KnockoutSlot, LoginAttempt, Match, MatchMedia, Player, PointHistory, RankingConfig, Tournament,
+    TournamentGroup, TournamentResult,
+)
 from .serializers import (
-    GroupSerializer, KnockoutSlotSerializer, MatchCreateSerializer, MatchSerializer, MatchUpdateSerializer,
-    PlayerPhotoSerializer, PlayerSerializer, PointHistorySerializer, RankingConfigSerializer, ResultCreateSerializer,
-    ResultSerializer, ResultUpdateSerializer, TournamentSerializer, UserSerializer,
+    GroupSerializer, KnockoutSlotSerializer, MatchCreateSerializer, MatchMediaSerializer, MatchSerializer,
+    MatchUpdateSerializer, PlayerPhotoSerializer, PlayerSerializer, PointHistorySerializer, RankingConfigSerializer,
+    ResultCreateSerializer, ResultSerializer, ResultUpdateSerializer, TournamentSerializer, UserSerializer,
 )
 
 RECAPTCHA_THRESHOLD = 5  # Số lần sai liên tiếp trước khi bắt xác minh reCAPTCHA
@@ -306,7 +310,9 @@ class TournamentViewSet(viewsets.ModelViewSet):
 
 
 class MatchViewSet(viewsets.ModelViewSet):
-    queryset = Match.objects.all().order_by("-date")
+    # annotate _media_count 1 lần ở đây để MatchSerializer.get_media_count không phải tự đếm
+    # riêng cho mỗi trận (tránh N+1 query khi danh sách trận dài).
+    queryset = Match.objects.annotate(_media_count=Count("media_items")).order_by("-date")
     serializer_class = MatchSerializer
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
@@ -435,6 +441,57 @@ class KnockoutSlotViewSet(viewsets.ReadOnlyModelViewSet):
         except ValueError as e:
             raise ValidationError(str(e))
         return Response(KnockoutSlotSerializer(slot).data)
+
+
+class MatchMediaViewSet(viewsets.ModelViewSet):
+    """Thư viện ảnh/video YouTube của từng trận đấu. Ai cũng xem được (giống matches); thêm mới
+    cần Admin/Quản lý/Người nhập liệu (giống nhập kết quả trận), xóa chỉ Admin (an toàn hơn,
+    cùng quy ước với xóa trận/xóa sơ đồ)."""
+    queryset = MatchMedia.objects.select_related("match", "uploaded_by").all()
+    serializer_class = MatchMediaSerializer
+    http_method_names = ["get", "post", "delete", "head", "options"]
+
+    def get_permissions(self):
+        if self.action == "destroy":
+            return [IsAdminOnly()]
+        if self.action == "create":
+            return [IsAdminOrManagerOrScorer()]
+        return [permissions.AllowAny()]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        match_id = self.request.query_params.get("match")
+        if match_id:
+            qs = qs.filter(match_id=match_id)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        match_id = request.data.get("match")
+        match = Match.objects.filter(id=match_id).first()
+        if not match:
+            raise ValidationError("Không tìm thấy trận đấu.")
+        media_type = request.data.get("media_type")
+        caption = request.data.get("caption", "")
+        try:
+            if media_type == MatchMedia.PHOTO:
+                image = request.FILES.get("image")
+                if not image:
+                    raise ValueError("Thiếu file ảnh.")
+                media = services.add_match_photo(match, image=image, caption=caption, user=request.user)
+            elif media_type == MatchMedia.YOUTUBE:
+                youtube_url = request.data.get("youtube_url", "")
+                media = services.add_match_youtube(match, youtube_url=youtube_url, caption=caption, user=request.user)
+            else:
+                raise ValueError("Loại media không hợp lệ (chỉ 'photo' hoặc 'youtube').")
+        except (ValueError, DjangoValidationError) as e:
+            msg = e.messages[0] if isinstance(e, DjangoValidationError) and getattr(e, "messages", None) else str(e)
+            raise ValidationError(msg)
+        return Response(MatchMediaSerializer(media).data, status=201)
+
+    def destroy(self, request, *args, **kwargs):
+        media = self.get_object()
+        services.delete_match_media(media)
+        return Response(status=204)
 
 
 class ResultViewSet(viewsets.ModelViewSet):

@@ -7,7 +7,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from . import services
-from .models import KnockoutSlot, Match, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
+from .models import KnockoutSlot, Match, MatchMedia, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
 
 
 from rest_framework.fields import empty as DRF_EMPTY
@@ -151,11 +151,34 @@ class TournamentSerializer(serializers.ModelSerializer):
 
 
 class MatchSerializer(serializers.ModelSerializer):
+    # Tổng số ảnh/video đã gắn cho trận này — chỉ 1 số đếm nhẹ để hiển thị badge ngoài danh sách,
+    # không kéo theo dữ liệu media đầy đủ (ảnh/link tải riêng khi mở thư viện). Dùng annotate ở
+    # MatchViewSet.get_queryset để tránh N+1 query; fallback .count() nếu truy cập trực tiếp model.
+    media_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Match
         fields = ["id", "tournament", "type", "mode", "status", "stage", "group", "player_a", "player_b", "player_a2", "player_b2",
-                  "sets_a", "sets_b", "winner_side", "delta_a", "delta_b", "handicap_a", "handicap_b", "date"]
+                  "sets_a", "sets_b", "winner_side", "delta_a", "delta_b", "handicap_a", "handicap_b", "date", "media_count"]
         read_only_fields = ["type", "winner_side", "delta_a", "delta_b"]
+
+    def get_media_count(self, obj):
+        return getattr(obj, "_media_count", None) if getattr(obj, "_media_count", None) is not None else obj.media_items.count()
+
+
+class MatchMediaSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MatchMedia
+        fields = [
+            "id", "match", "media_type", "image", "youtube_url", "youtube_video_id",
+            "caption", "order", "uploaded_by_name", "created_at",
+        ]
+        read_only_fields = ["youtube_video_id", "uploaded_by_name", "created_at"]
+
+    def get_uploaded_by_name(self, obj):
+        return obj.uploaded_by.username if obj.uploaded_by_id else None
 
 
 class MatchCreateSerializer(serializers.Serializer):

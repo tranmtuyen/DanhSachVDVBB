@@ -950,6 +950,7 @@ export default function App() {
             allPlayers={players}
             canManage={canManagePlayers}
             canManageMatches={canManageMatches}
+            canEnterMatches={canEnterMatches}
             onEdit={editPlayer}
             onDeletePlayer={deletePlayer}
             onEditMatch={editMatch}
@@ -995,7 +996,7 @@ export default function App() {
           )}
 
           {tab === "friendly" && (
-            <FriendlyMatchesTab data={data} canManage={canManageMatches} onEditMatch={editMatch} onDeleteMatch={deleteMatch} />
+            <FriendlyMatchesTab data={data} canManage={canManageMatches} canAddMedia={canEnterMatches} onEditMatch={editMatch} onDeleteMatch={deleteMatch} />
           )}
 
           {tab === "enter-match" && canEnterMatches && (
@@ -1327,7 +1328,7 @@ function AchievementRow({ result: r, tournament, otherNames, isLast }) {
   );
 }
 
-function PlayerDetail({ player, history, matches, tournaments, results, allPlayers, canManage, canManageMatches, onEdit, onDeletePlayer, onEditMatch, onDeleteMatch, onBack }) {
+function PlayerDetail({ player, history, matches, tournaments, results, allPlayers, canManage, canManageMatches, canEnterMatches, onEdit, onDeletePlayer, onEditMatch, onDeleteMatch, onBack }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(player.name);
   const [nickname, setNickname] = useState(player.nickname || "");
@@ -1512,6 +1513,7 @@ function PlayerDetail({ player, history, matches, tournaments, results, allPlaye
                       match={linkedMatch}
                       data={{ players: allPlayers, tournaments }}
                       canManage={canManageMatches}
+                      canAddMedia={canEnterMatches}
                       onEditMatch={onEditMatch}
                       onDeleteMatch={onDeleteMatch}
                       showDate
@@ -1845,9 +1847,12 @@ function PhotoLightbox({ url, alt, onClose }) {
 }
 
 /* ---------- Match row (dùng chung: có thể sửa/xóa) ---------- */
-function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showDate, perspectivePlayerId, stageBadge }) {
+function MatchRow({ match: m, data, canManage, canAddMedia, onEditMatch, onDeleteMatch, showDate, perspectivePlayerId, stageBadge }) {
   const isDoubles = m.mode === "doi";
   const [editing, setEditing] = useState(false);
+  const [showMedia, setShowMedia] = useState(false);
+  const [mediaCountOverride, setMediaCountOverride] = useState(null);
+  const mediaCount = mediaCountOverride ?? m.media_count ?? 0;
   const [playerAId, setPlayerAId] = useState(m.player_a);
   const [playerA2Id, setPlayerA2Id] = useState(m.player_a2 || "");
   const [playerBId, setPlayerBId] = useState(m.player_b);
@@ -1971,6 +1976,18 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
           <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px" }}>
             {isDoubles ? "ĐÔI" : "ĐƠN"}
           </span>
+          {(mediaCount > 0 || canAddMedia) && (
+            <button
+              type="button" onClick={() => setShowMedia(true)}
+              style={{
+                fontSize: 10.5, fontWeight: 700, borderRadius: 999, padding: "1px 8px", whiteSpace: "nowrap",
+                border: `1px solid ${mediaCount > 0 ? C.accent + "55" : C.line}`, cursor: "pointer",
+                background: mediaCount > 0 ? C.accent + "14" : "transparent", color: mediaCount > 0 ? C.accent : C.muted,
+              }}
+            >
+              {mediaCount > 0 ? `🖼 ${mediaCount}` : "+ Ảnh/Video"}
+            </button>
+          )}
           {m.status === "scheduled" ? (
             <MatchTeamsGrid
               leftP1={leftPlayers[0]} leftP2={leftPlayers[1]} rightP1={rightPlayers[0]} rightP2={rightPlayers[1]}
@@ -2027,6 +2044,200 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
             </div>
             {error && <div style={{ color: C.bad, fontSize: 11.5, maxWidth: 220, textAlign: "right" }}>{error}</div>}
           </div>
+        )}
+      </div>
+      {showMedia && (
+        <MatchMediaModal
+          matchId={m.id} canAdd={canAddMedia} canDelete={canManage}
+          onClose={() => setShowMedia(false)}
+          onCountChange={setMediaCountOverride}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ---------- Thư viện ảnh/video YouTube của 1 trận đấu ---------- */
+function YoutubeEmbed({ videoId }) {
+  const [playing, setPlaying] = useState(false);
+  if (!playing) {
+    return (
+      <button
+        type="button" onClick={() => setPlaying(true)}
+        style={{ position: "relative", display: "block", width: "100%", border: "none", padding: 0, cursor: "pointer", borderRadius: 12, overflow: "hidden", background: C.ink }}
+      >
+        <img src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`} alt="" style={{ width: "100%", display: "block", opacity: 0.85 }} />
+        <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ width: 56, height: 56, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>▶</span>
+        </span>
+      </button>
+    );
+  }
+  return (
+    <div style={{ position: "relative", paddingTop: "56.25%", borderRadius: 12, overflow: "hidden" }}>
+      <iframe
+        src={`https://www.youtube.com/embed/${videoId}?autoplay=1`} title="YouTube video"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+      />
+    </div>
+  );
+}
+
+function MatchMediaAddForm({ hasYoutube, photoCount, onAddPhoto, onAddYoutube, onCancel }) {
+  const [fillType, setFillType] = useState(photoCount >= 5 && !hasYoutube ? "youtube" : "photo");
+  const [file, setFile] = useState(null);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [caption, setCaption] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError("");
+    if (fillType === "photo" && !file) { setError("Hãy chọn 1 ảnh."); return; }
+    if (fillType === "youtube" && !youtubeUrl.trim()) { setError("Hãy dán link YouTube."); return; }
+    setBusy(true);
+    try {
+      if (fillType === "photo") await onAddPhoto(file, caption.trim());
+      else await onAddYoutube(youtubeUrl.trim(), caption.trim());
+    } catch (err) {
+      setError(err.message || "Có lỗi khi thêm.");
+      setBusy(false);
+      return;
+    }
+    setBusy(false);
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
+      <div className="flex gap-2">
+        <button type="button" disabled={photoCount >= 5} onClick={() => setFillType("photo")} style={{ ...(fillType === "photo" ? btnPrimary : btnGhost), padding: "6px 12px", fontSize: 12.5, opacity: photoCount >= 5 ? 0.5 : 1 }}>
+          Ảnh {photoCount >= 5 ? "(đã đủ 5)" : ""}
+        </button>
+        <button type="button" disabled={hasYoutube} onClick={() => setFillType("youtube")} style={{ ...(fillType === "youtube" ? btnPrimary : btnGhost), padding: "6px 12px", fontSize: 12.5, opacity: hasYoutube ? 0.5 : 1 }}>
+          Video YouTube {hasYoutube ? "(đã có)" : ""}
+        </button>
+      </div>
+      {fillType === "photo" ? (
+        <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ fontSize: 13 }} />
+      ) : (
+        <input style={inputStyle} placeholder="https://www.youtube.com/watch?v=..." value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} />
+      )}
+      <input style={inputStyle} placeholder="Chú thích (tuỳ chọn)" value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={200} />
+      {error && <div style={{ color: C.bad, fontSize: 12.5 }}>{error}</div>}
+      <div className="flex gap-2">
+        <button type="submit" style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }} disabled={busy}>{busy ? "Đang lưu…" : "Thêm"}</button>
+        <button type="button" style={{ ...btnGhost, padding: "6px 14px", fontSize: 13 }} onClick={onCancel}>Hủy</button>
+      </div>
+    </form>
+  );
+}
+
+function MatchMediaModal({ matchId, canAdd, canDelete, onClose, onCountChange }) {
+  const [items, setItems] = useState(null); // null = đang tải
+  const [error, setError] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiGet(`/match-media/?match=${matchId}`)
+      .then((res) => { if (!cancelled) setItems(res); })
+      .catch((e) => { if (!cancelled) setError(e.message || "Không tải được thư viện."); });
+    return () => { cancelled = true; };
+  }, [matchId]);
+
+  async function refresh() {
+    const res = await apiGet(`/match-media/?match=${matchId}`);
+    setItems(res);
+    onCountChange && onCountChange(res.length);
+    return res;
+  }
+
+  async function handleAddPhoto(file, caption) {
+    const fd = new FormData();
+    fd.append("match", matchId); fd.append("media_type", "photo"); fd.append("image", file);
+    if (caption) fd.append("caption", caption);
+    await apiForm("/match-media/", "POST", fd);
+    const res = await refresh();
+    setActiveIndex(res.length - 1);
+    setShowAddForm(false);
+  }
+
+  async function handleAddYoutube(url, caption) {
+    const fd = new FormData();
+    fd.append("match", matchId); fd.append("media_type", "youtube"); fd.append("youtube_url", url);
+    if (caption) fd.append("caption", caption);
+    await apiForm("/match-media/", "POST", fd);
+    const res = await refresh();
+    setActiveIndex(res.length - 1);
+    setShowAddForm(false);
+  }
+
+  async function handleDelete(id) {
+    if (!window.confirm("Xóa ảnh/video này? Không thể hoàn tác.")) return;
+    setError("");
+    try {
+      await apiDelete(`/match-media/${id}/`);
+      const res = await refresh();
+      setActiveIndex((i) => Math.max(0, Math.min(i, res.length - 1)));
+    } catch (e) {
+      setError(e.message || "Không xóa được.");
+    }
+  }
+
+  const active = items && items.length > 0 ? items[activeIndex] : null;
+  const photoCount = (items || []).filter((x) => x.media_type === "photo").length;
+  const hasYoutube = (items || []).some((x) => x.media_type === "youtube");
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.6)", zIndex: 90, overflowY: "auto", padding: "3vh 10px" }} onClick={onClose}>
+      <div style={{ background: C.surface, borderRadius: 16, maxWidth: 560, margin: "0 auto", padding: 20 }} className="flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <div style={{ fontSize: 16, fontWeight: 800, fontFamily: FONT_DISPLAY }}>Ảnh / Video trận đấu</div>
+          <button type="button" onClick={onClose} aria-label="Đóng" style={{ ...btnGhost, padding: "6px 14px" }}>✕</button>
+        </div>
+
+        {items === null ? (
+          <div style={{ fontSize: 13, color: C.muted }}>Đang tải…</div>
+        ) : items.length === 0 && !showAddForm ? (
+          <EmptyState text="Chưa có ảnh/video nào cho trận đấu này." />
+        ) : active ? (
+          <div className="flex flex-col gap-2">
+            {active.media_type === "photo" ? (
+              <img src={active.image} alt={active.caption || "Ảnh trận đấu"} style={{ width: "100%", maxHeight: 420, objectFit: "contain", borderRadius: 12, background: C.bg }} />
+            ) : (
+              <YoutubeEmbed videoId={active.youtube_video_id} />
+            )}
+            {active.caption && <div style={{ fontSize: 13, color: C.ink }}>{active.caption}</div>}
+            <div className="flex items-center justify-between">
+              {items.length > 1 ? (
+                <div className="flex items-center gap-2">
+                  <button type="button" style={{ ...btnGhost, padding: "4px 12px", fontSize: 13 }} onClick={() => setActiveIndex((i) => (i - 1 + items.length) % items.length)}>‹</button>
+                  <span style={{ fontSize: 12, color: C.muted }}>{activeIndex + 1}/{items.length}</span>
+                  <button type="button" style={{ ...btnGhost, padding: "4px 12px", fontSize: 13 }} onClick={() => setActiveIndex((i) => (i + 1) % items.length)}>›</button>
+                </div>
+              ) : <span />}
+              {canDelete && (
+                <button type="button" style={{ ...btnGhost, padding: "4px 12px", fontSize: 12.5, color: C.bad, borderColor: C.bad + "55" }} onClick={() => handleDelete(active.id)}>Xóa ảnh/video này</button>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
+
+        {canAdd && items !== null && (
+          showAddForm ? (
+            <MatchMediaAddForm
+              hasYoutube={hasYoutube} photoCount={photoCount}
+              onAddPhoto={handleAddPhoto} onAddYoutube={handleAddYoutube}
+              onCancel={() => setShowAddForm(false)}
+            />
+          ) : (
+            <button type="button" style={btnGhost} onClick={() => setShowAddForm(true)}>+ Thêm ảnh/video</button>
+          )
         )}
       </div>
     </div>
@@ -2319,7 +2530,7 @@ function groupStandings(group, matches, players) {
 }
 
 /* ---------- Thẻ 1 bảng đấu (giao diện dạng lưới, giống mẫu "Bảng A") ---------- */
-function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpdate, onDelete, canEditMatches, onEditMatch, onDeleteMatch }) {
+function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpdate, onDelete, canEditMatches, canAddMedia, onEditMatch, onDeleteMatch }) {
   const [editing, setEditing] = useState(false);
   const [showMatches, setShowMatches] = useState(false);
   const [err, setErr] = useState("");
@@ -2449,7 +2660,7 @@ function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpd
           <div className="tt-matchlist" style={{ padding: "0 14px 6px" }}>
             {groupMatches.map((m) => (
               <MatchRow
-                key={m.id} match={m} data={matchData} canManage={canEditMatches}
+                key={m.id} match={m} data={matchData} canManage={canEditMatches} canAddMedia={canAddMedia}
                 onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate
               />
             ))}
@@ -2685,7 +2896,7 @@ function GroupsPanel({ tournament, data, canManageGroups, canEnterMatch, canEdit
             <GroupCard
               key={g.id} group={g} tournamentGroups={groups} matches={tMatches} players={data.players}
               canManage={canManageGroups} onUpdate={onUpdateGroup} onDelete={onDeleteGroup}
-              canEditMatches={canEditMatches} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
+              canEditMatches={canEditMatches} canAddMedia={canEnterMatch} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
             />
           ))}
         </div>
@@ -2700,7 +2911,7 @@ function GroupsPanel({ tournament, data, canManageGroups, canEnterMatch, canEdit
           <div style={{ fontWeight: 700, fontSize: 15, marginTop: 4 }}>Trận chưa phân vòng/bảng ({unassigned.length})</div>
           <div className="tt-matchlist" style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 16px" }}>
             {unassigned.map((m) => (
-              <MatchRow key={m.id} match={m} data={data} canManage={canEditMatches} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate={false} />
+              <MatchRow key={m.id} match={m} data={data} canManage={canEditMatches} canAddMedia={canEnterMatch} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate={false} />
             ))}
           </div>
         </>
@@ -2759,7 +2970,7 @@ function GenerateBracketForm({ onGenerate }) {
 }
 
 /* ---------- Sơ đồ cũ (trước khi có tính năng này): chỉ xem/sửa/xóa, không tạo trận mới kiểu này nữa ---------- */
-function LegacyKnockoutView({ matches, data, canEditMatches, onEditMatch, onDeleteMatch }) {
+function LegacyKnockoutView({ matches, data, canEditMatches, canAddMedia, onEditMatch, onDeleteMatch }) {
   const byStage = (s) => matches.filter((m) => m.stage === s).sort((x, y) => x.id - y.id);
   const minIdOf = (s) => Math.min(...matches.filter((m) => m.stage === s).map((m) => m.id));
   const customStages = [...new Set(matches.map((m) => m.stage))]
@@ -2790,7 +3001,7 @@ function LegacyKnockoutView({ matches, data, canEditMatches, onEditMatch, onDele
           <div className="tt-matchlist" style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 16px" }}>
             {[...matches].sort((x, y) => stageOrder.indexOf(x.stage) - stageOrder.indexOf(y.stage) || x.id - y.id).map((m) => (
               <MatchRow
-                key={m.id} match={m} data={data} canManage onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
+                key={m.id} match={m} data={data} canManage canAddMedia={canAddMedia} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
                 showDate={false} stageBadge={{ text: stageLabel(m.stage), color: C.accent }}
               />
             ))}
@@ -3059,7 +3270,7 @@ function KnockoutPanel({
         <div style={{ fontWeight: 700, fontSize: 15 }}>Vòng loại trực tiếp</div>
         {canGenerateBracket && <GenerateBracketForm onGenerate={(size) => onGenerateBracket(tournament.id, size)} />}
         {legacyMatches.length > 0 ? (
-          <LegacyKnockoutView matches={legacyMatches} data={data} canEditMatches={canEditMatches} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} />
+          <LegacyKnockoutView matches={legacyMatches} data={data} canEditMatches={canEditMatches} canAddMedia={canEnterMatch} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} />
         ) : (
           !canGenerateBracket && <EmptyState text="Giải đấu này chưa có sơ đồ vòng loại trực tiếp." />
         )}
@@ -3170,7 +3381,7 @@ function KnockoutPanel({
           <div className="tt-matchlist" style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 16px" }}>
             {managedMatches.sort((x, y) => x.id - y.id).map((m) => (
               <MatchRow
-                key={m.id} match={m} data={data} canManage onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
+                key={m.id} match={m} data={data} canManage canAddMedia={canEnterMatch} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
                 showDate={false} stageBadge={{ text: m.__stage, color: C.accent }}
               />
             ))}
@@ -3688,7 +3899,7 @@ function EnterMatchTab({ data, onAddMatch }) {
 }
 
 /* ---------- Friendly matches log ---------- */
-function FriendlyMatchesTab({ data, canManage, onEditMatch, onDeleteMatch }) {
+function FriendlyMatchesTab({ data, canManage, canAddMedia, onEditMatch, onDeleteMatch }) {
   const [yearFilter, setYearFilter] = useState("all");
 
   const allFriendly = useMemo(
@@ -3719,7 +3930,7 @@ function FriendlyMatchesTab({ data, canManage, onEditMatch, onDeleteMatch }) {
       ) : (
         <div className="tt-matchlist" style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "0 16px" }}>
           {friendly.map((m) => (
-            <MatchRow key={m.id} match={m} data={data} canManage={canManage} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate />
+            <MatchRow key={m.id} match={m} data={data} canManage={canManage} canAddMedia={canAddMedia} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate />
           ))}
         </div>
       )}

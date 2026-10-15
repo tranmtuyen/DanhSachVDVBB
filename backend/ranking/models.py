@@ -180,6 +180,46 @@ class Match(models.Model):
         return f"{self.player_a} {self.sets_a}-{self.sets_b} {self.player_b}"
 
 
+def match_media_path(instance, filename):
+    return f"match_media/{instance.match_id or 'new'}_{filename}"
+
+
+def validate_match_photo_size(value):
+    max_size = 3 * 1024 * 1024  # 3MB — ảnh trận đấu thường chi tiết hơn ảnh đại diện VĐV
+    if value.size > max_size:
+        raise ValidationError("Kích thước ảnh không được vượt quá 3MB.")
+
+
+class MatchMedia(models.Model):
+    """1 ảnh hoặc 1 video YouTube minh họa cho 1 trận đấu — bảng companion thuần tuý (giống
+    KnockoutSlot), KHÔNG đụng vào cấu trúc Match/Elo hiện có. Xóa media không ảnh hưởng điểm số."""
+    PHOTO = "photo"
+    YOUTUBE = "youtube"
+    MEDIA_TYPE_CHOICES = [(PHOTO, "Ảnh"), (YOUTUBE, "Video YouTube")]
+
+    match = models.ForeignKey(Match, verbose_name="Trận đấu", on_delete=models.CASCADE, related_name="media_items")
+    media_type = models.CharField("Loại", max_length=10, choices=MEDIA_TYPE_CHOICES)
+    image = models.ImageField(
+        "Ảnh", upload_to=match_media_path, blank=True, null=True, validators=[validate_match_photo_size]
+    )
+    youtube_url = models.URLField("Link YouTube", blank=True, default="")
+    youtube_video_id = models.CharField("Mã video YouTube", max_length=20, blank=True, default="")
+    caption = models.CharField("Chú thích", max_length=200, blank=True, default="")
+    order = models.PositiveSmallIntegerField("Thứ tự hiển thị", default=0)
+    uploaded_by = models.ForeignKey(
+        "auth.User", verbose_name="Người thêm", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Ảnh/Video trận đấu"
+        verbose_name_plural = "Ảnh/Video trận đấu"
+        ordering = ["match_id", "order", "id"]
+
+    def __str__(self):
+        return f"{self.match} — {self.get_media_type_display()}"
+
+
 class KnockoutSlot(models.Model):
     """1 "ô" trong SƠ ĐỒ vòng loại trực tiếp — sinh sẵn hàng loạt khi tạo sơ đồ (xem
     services.generate_bracket), đại diện cho 1 vị trí trận đấu trong cây đấu.

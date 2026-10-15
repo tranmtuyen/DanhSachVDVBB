@@ -7,11 +7,12 @@ Tách riêng khỏi views/admin để dễ kiểm thử độc lập (unit test)
 """
 import json
 import os
+import re
 import urllib.parse
 import urllib.request
 
 from django.utils import timezone
-from .models import KnockoutSlot, Match, PointHistory, Tournament, TournamentResult
+from .models import KnockoutSlot, Match, MatchMedia, PointHistory, Tournament, TournamentResult
 
 
 def verify_recaptcha(token, remote_ip=None):
@@ -576,3 +577,52 @@ def clear_slot(slot):
     slot.bye_player2 = None
     slot.save(update_fields=["match", "bye_player", "bye_player2"])
     return slot
+
+
+# ================= Thư viện ảnh / video YouTube cho từng trận đấu (MatchMedia) =================
+# Thuần companion table — không đụng tới Match/Elo. Xóa media không hoàn tác điểm gì cả.
+
+MATCH_MEDIA_MAX_PHOTOS = 5
+MATCH_MEDIA_MAX_YOUTUBE = 1
+
+YOUTUBE_ID_RE = re.compile(
+    r"(?:youtube\.com/(?:watch\?v=|embed/|shorts/)|youtu\.be/)([A-Za-z0-9_-]{11})"
+)
+
+
+def extract_youtube_id(url):
+    m = YOUTUBE_ID_RE.search(url or "")
+    if not m:
+        raise ValueError("Link YouTube không hợp lệ — hãy dán link dạng youtube.com/watch?v=... hoặc youtu.be/...")
+    return m.group(1)
+
+
+def add_match_photo(match, *, image, caption="", user=None):
+    count = match.media_items.filter(media_type=MatchMedia.PHOTO).count()
+    if count >= MATCH_MEDIA_MAX_PHOTOS:
+        raise ValueError(f"Trận đấu này đã có tối đa {MATCH_MEDIA_MAX_PHOTOS} ảnh — hãy xóa bớt ảnh cũ trước khi thêm.")
+    order = match.media_items.count()
+    media = MatchMedia(
+        match=match, media_type=MatchMedia.PHOTO, image=image,
+        caption=(caption or "").strip(), order=order, uploaded_by=user if user and user.is_authenticated else None,
+    )
+    media.full_clean(exclude=["youtube_url", "youtube_video_id"])
+    media.save()
+    return media
+
+
+def add_match_youtube(match, *, youtube_url, caption="", user=None):
+    count = match.media_items.filter(media_type=MatchMedia.YOUTUBE).count()
+    if count >= MATCH_MEDIA_MAX_YOUTUBE:
+        raise ValueError(f"Trận đấu này đã có tối đa {MATCH_MEDIA_MAX_YOUTUBE} video YouTube — hãy xóa video cũ trước khi thêm.")
+    video_id = extract_youtube_id(youtube_url)
+    order = match.media_items.count()
+    media = MatchMedia.objects.create(
+        match=match, media_type=MatchMedia.YOUTUBE, youtube_url=youtube_url.strip(), youtube_video_id=video_id,
+        caption=(caption or "").strip(), order=order, uploaded_by=user if user and user.is_authenticated else None,
+    )
+    return media
+
+
+def delete_match_media(media):
+    media.delete()
