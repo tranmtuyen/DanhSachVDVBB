@@ -636,15 +636,11 @@ export default function App() {
     await apiDelete(`/groups/${groupId}/`);
     await refreshAll();
   }
-  async function closeTournament(tid) {
-    // Trạng thái giải đấu giờ luôn TỰ TÍNH từ Từ ngày/Đến ngày (xem Tournament.computed_status ở
-    // backend) — "Đóng giải đấu sớm" vì vậy nghĩa là kéo "Đến ngày" (và "Từ ngày" nếu giải chưa
-    // tới ngày bắt đầu) về hôm nay, để giải lập tức được tính là "Đã kết thúc".
-    const today = todayStr();
-    const t = tournaments.find((x) => x.id === tid);
-    const patch = { date_to: today };
-    if (t && t.date > today) patch.date = today;
-    await apiPatchJSON(`/tournaments/${tid}/`, patch);
+  async function editTournament(tid, { name, type, date, dateTo }) {
+    // Trạng thái giải đấu luôn TỰ TÍNH từ Từ ngày/Đến ngày (xem Tournament.computed_status ở
+    // backend) — không còn nút đóng giải thủ công nữa; Quản trị viên chỉnh ngày diễn ra ở đây thì
+    // trạng thái Sắp/Đang diễn ra/Đã kết thúc tự khớp theo logic đó.
+    await apiPatchJSON(`/tournaments/${tid}/`, { name, type, date, date_to: dateTo || date });
     await refreshAll();
   }
 
@@ -945,7 +941,7 @@ export default function App() {
             <TournamentsTab
               data={data} canCreate={canManageTournaments} canEnterResults={canEnterResults} canEnterMatches={canEnterMatches} canManageMatches={canManageMatches}
               canDeleteTournament={role === "admin"}
-              onAddTournament={addTournament} onCloseTournament={closeTournament} onDeleteTournament={deleteTournament} onAddResult={addResult}
+              onAddTournament={addTournament} onEditTournament={editTournament} onDeleteTournament={deleteTournament} onAddResult={addResult}
               onEditResult={editResult} onDeleteResult={deleteResult}
               onAddMatch={addMatch} onEditMatch={editMatch} onDeleteMatch={deleteMatch}
               onAddGroup={addGroup} onUpdateGroup={updateGroup} onDeleteGroup={deleteGroup}
@@ -1984,7 +1980,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
 }
 
 /* ---------- Tournaments ---------- */
-function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onAddTournament, onCloseTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch, onAddGroup, onUpdateGroup, onDeleteGroup }) {
+function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onAddTournament, onEditTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch, onAddGroup, onUpdateGroup, onDeleteGroup }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("khong_chap");
@@ -2075,7 +2071,7 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, can
               expanded={expanded === t.id} onToggle={() => setExpanded(expanded === t.id ? null : t.id)}
               canEnterResults={canEnterResults} canEnterMatches={canEnterMatches} canManageMatches={canManageMatches}
               canDeleteTournament={canDeleteTournament}
-              onCloseTournament={onCloseTournament} onDeleteTournament={onDeleteTournament} onAddResult={onAddResult}
+              onEditTournament={onEditTournament} onDeleteTournament={onDeleteTournament} onAddResult={onAddResult}
               onEditResult={onEditResult} onDeleteResult={onDeleteResult}
               onAddMatch={onAddMatch} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
               onAddGroup={onAddGroup} onUpdateGroup={onUpdateGroup} onDeleteGroup={onDeleteGroup}
@@ -2870,8 +2866,9 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
 }
 
 /* ---------- Thẻ giải đấu (gọn): thông tin + nút mở popup ---------- */
-function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onCloseTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch, onAddGroup, onUpdateGroup, onDeleteGroup }) {
+function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onEditTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch, onAddGroup, onUpdateGroup, onDeleteGroup }) {
   const [showManage, setShowManage] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const matches = data.matches.filter((m) => m.tournament === t.id);
   const results = data.results.filter((r) => r.tournament === t.id);
   const groups = (data.groups || []).filter((g) => g.tournament === t.id);
@@ -2906,16 +2903,8 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
 
           <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
             <button style={btnPrimary} onClick={() => setShowManage(true)}>{canManage ? "Quản lý giải đấu" : "Xem chi tiết giải"}</button>
-            {canEnterResults && t.status !== "da_ket_thuc" && (
-              <button
-                style={btnGhost}
-                onClick={() => {
-                  if (!window.confirm(`Kết thúc giải "${t.name}" ngay hôm nay?\n\nNgày kết thúc của giải sẽ được chỉnh về hôm nay, trạng thái sẽ tự chuyển sang "Đã kết thúc".`)) return;
-                  onCloseTournament(t.id);
-                }}
-              >
-                Kết thúc sớm
-              </button>
+            {canDeleteTournament && (
+              <button style={btnGhost} onClick={() => setShowEdit(true)}>Chỉnh sửa</button>
             )}
             {canDeleteTournament && (
               <button
@@ -2941,6 +2930,92 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
           handlers={{ onAddGroup, onUpdateGroup, onDeleteGroup, onAddMatch, onEditMatch, onDeleteMatch, onAddResult, onEditResult, onDeleteResult }}
         />
       )}
+
+      {showEdit && (
+        <TournamentEditModal
+          tournament={t}
+          onSave={async (patch) => { await onEditTournament(t.id, patch); setShowEdit(false); }}
+          onClose={() => setShowEdit(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ---------- Popup "Chỉnh sửa giải đấu" (quyền Quản trị): Tên giải, ngày diễn ra, Loại giải ---------- */
+function TournamentEditModal({ tournament: t, onSave, onClose }) {
+  const [name, setName] = useState(t.name);
+  const [type, setType] = useState(t.type);
+  const [date, setDate] = useState(t.date);
+  const [dateTo, setDateTo] = useState(t.effective_date_to || t.date_to || t.date);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setError("");
+    const finalDateTo = dateTo && dateTo >= date ? dateTo : date;
+    setSaving(true);
+    try {
+      await onSave({ name: name.trim(), type, date, dateTo: finalDateTo });
+    } catch (err) {
+      setError(err?.message || "Không thể lưu thay đổi.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", zIndex: 80, overflowY: "auto", padding: "3vh 10px" }}>
+      <form
+        onSubmit={submit}
+        style={{ background: C.surface, borderRadius: 16, maxWidth: 480, margin: "0 auto", padding: 20 }}
+        className="flex flex-col gap-3"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>Chỉnh sửa giải đấu</div>
+            <div style={{ fontSize: 17, fontWeight: 800, fontFamily: FONT_DISPLAY }}>{t.name}</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Đóng" style={{ ...btnGhost, padding: "6px 14px", flexShrink: 0 }}>✕</button>
+        </div>
+
+        <Field label="Tên giải">
+          <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} required />
+        </Field>
+        <Field label="Loại giải">
+          <select style={inputStyle} value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="khong_chap">Không chấp điểm</option>
+            <option value="co_chap">Có chấp điểm</option>
+          </select>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Từ ngày">
+            <input
+              type="date" style={inputStyle} value={date}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDate(v);
+                if (!dateTo || dateTo < v) setDateTo(v);
+              }}
+            />
+          </Field>
+          <Field label="Đến ngày">
+            <input type="date" style={inputStyle} value={dateTo} min={date} onChange={(e) => setDateTo(e.target.value)} />
+          </Field>
+        </div>
+        <div style={{ fontSize: 11.5, color: C.muted }}>
+          Trạng thái giải (Sắp diễn ra / Đang diễn ra / Đã kết thúc) tự tính theo khoảng ngày này so với hôm nay.
+        </div>
+
+        {error && <div style={{ color: C.bad, fontSize: 12.5 }}>{error}</div>}
+
+        <div className="flex gap-2">
+          <button type="submit" style={btnPrimary} disabled={saving}>{saving ? "Đang lưu…" : "Lưu thay đổi"}</button>
+          <button type="button" style={btnGhost} onClick={onClose}>Huỷ</button>
+        </div>
+      </form>
     </div>
   );
 }
