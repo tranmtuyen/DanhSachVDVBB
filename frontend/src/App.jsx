@@ -213,6 +213,18 @@ async function apiDelete(path) {
   const res = await fetch(`${API}${path}`, { method: "DELETE", headers: authHeaders() });
   if (!res.ok) throw new Error(`DELETE ${path} thất bại (${res.status})`);
 }
+// POST không cần đọc lại JSON trả về (action trả 204, VD xóa sơ đồ đấu) — vẫn đọc lỗi JSON nếu có.
+async function apiPostNoContent(path, body) {
+  const res = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body || {}),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(errMessage(err, `POST ${path} thất bại`));
+  }
+}
 
 function photoUrl(p) {
   if (!p || !p.photo) return null;
@@ -525,6 +537,7 @@ export default function App() {
   const [groups, setGroups] = useState([]);
   const [tournaments, setTournaments] = useState([]);
   const [matches, setMatches] = useState([]);
+  const [knockoutSlots, setKnockoutSlots] = useState([]);
   const [results, setResults] = useState([]);
   const [history, setHistory] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -575,11 +588,11 @@ export default function App() {
 
   async function refreshAll() {
     try {
-      const [p, t, m, r, h, g] = await Promise.all([
+      const [p, t, m, r, h, g, ks] = await Promise.all([
         apiGet("/players/"), apiGet("/tournaments/"), apiGet("/matches/"),
-        apiGet("/results/"), apiGet("/history/"), apiGet("/groups/"),
+        apiGet("/results/"), apiGet("/history/"), apiGet("/groups/"), apiGet("/knockout-slots/"),
       ]);
-      setPlayers(p); setTournaments(t); setMatches(m); setResults(r); setHistory(h); setGroups(g);
+      setPlayers(p); setTournaments(t); setMatches(m); setResults(r); setHistory(h); setGroups(g); setKnockoutSlots(ks);
       setLoadError("");
     } catch (e) {
       setLoadError(`Không kết nối được tới backend tại ${API_ORIGIN}. Hãy chắc chắn Django đang chạy.`);
@@ -646,6 +659,37 @@ export default function App() {
 
   async function deleteTournament(tid) {
     await apiDelete(`/tournaments/${tid}/`);
+    await refreshAll();
+  }
+
+  async function generateBracket(tid, firstRoundMatches) {
+    await apiPostJSON(`/tournaments/${tid}/generate_bracket/`, { first_round_matches: firstRoundMatches });
+    await refreshAll();
+  }
+  async function deleteBracket(tid) {
+    await apiPostNoContent(`/tournaments/${tid}/delete_bracket/`);
+    await refreshAll();
+  }
+  async function renameKnockoutRound(tid, roundNo, name) {
+    await apiPatchJSON(`/tournaments/${tid}/rename_knockout_round/`, { round_no: roundNo, name });
+    await refreshAll();
+  }
+  async function setSlotBye(slotId, { mode, playerId, player2Id }) {
+    await apiPostJSON(`/knockout-slots/${slotId}/set_bye/`, { mode, player: playerId, player2: player2Id || null });
+    await refreshAll();
+  }
+  async function setSlotMatch(slotId, { mode, status, playerAId, playerBId, playerA2Id, playerB2Id, setsA, setsB, handicapA, handicapB }) {
+    await apiPostJSON(`/knockout-slots/${slotId}/set_match/`, {
+      mode, status: status || "completed",
+      player_a: playerAId, player_b: playerBId,
+      player_a2: playerA2Id || null, player_b2: playerB2Id || null,
+      sets_a: setsA ?? null, sets_b: setsB ?? null,
+      handicap_a: (handicapA || "").trim(), handicap_b: (handicapB || "").trim(),
+    });
+    await refreshAll();
+  }
+  async function clearSlot(slotId) {
+    await apiPostJSON(`/knockout-slots/${slotId}/clear/`, {});
     await refreshAll();
   }
 
@@ -746,7 +790,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
 
-  const data = { players, tournaments, matches, results, history, groups };
+  const data = { players, tournaments, matches, results, history, groups, knockoutSlots };
 
   if (!loaded) {
     return <div style={{ fontFamily: FONT_BODY, color: C.muted, padding: 40 }}>Đang tải dữ liệu…</div>;
@@ -945,6 +989,8 @@ export default function App() {
               onEditResult={editResult} onDeleteResult={deleteResult}
               onAddMatch={addMatch} onEditMatch={editMatch} onDeleteMatch={deleteMatch}
               onAddGroup={addGroup} onUpdateGroup={updateGroup} onDeleteGroup={deleteGroup}
+              onGenerateBracket={generateBracket} onDeleteBracket={deleteBracket} onRenameKnockoutRound={renameKnockoutRound}
+              onSetSlotBye={setSlotBye} onSetSlotMatch={setSlotMatch} onClearSlot={clearSlot}
             />
           )}
 
@@ -1865,8 +1911,13 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
   async function remove() {
     const label = `${labelA} ${m.sets_a}–${m.sets_b} ${labelB}`;
     const confirmMsg = isDoubles ? `Xóa trận đấu ${label}?` : `Xóa trận đấu ${label}? Điểm của cả 2 VĐV sẽ được hoàn tác.`;
-    if (window.confirm(confirmMsg)) {
+    if (!window.confirm(confirmMsg)) return;
+    setError("");
+    try {
       await onDeleteMatch(m.id);
+    } catch (err) {
+      // VD: trận thuộc 1 ô sơ đồ vòng loại trực tiếp mà vòng sau đã có trận hoàn tất dựa trên nó.
+      setError(err.message || "Không thể xóa trận đấu này.");
     }
   }
 
@@ -1969,9 +2020,12 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
           {perspective || m.status === "scheduled" ? "" : isDoubles ? "Không tính điểm" : <>{m.delta_a >= 0 ? "+" : ""}{m.delta_a} / {m.delta_b >= 0 ? "+" : ""}{m.delta_b}</>}
         </span>
         {canManage && (
-          <div className="flex gap-1">
-            <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12 }} onClick={() => setEditing(true)}>Sửa</button>
-            <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12, color: C.bad, borderColor: C.bad + "55" }} onClick={remove}>Xóa</button>
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex gap-1">
+              <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12 }} onClick={() => setEditing(true)}>Sửa</button>
+              <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12, color: C.bad, borderColor: C.bad + "55" }} onClick={remove}>Xóa</button>
+            </div>
+            {error && <div style={{ color: C.bad, fontSize: 11.5, maxWidth: 220, textAlign: "right" }}>{error}</div>}
           </div>
         )}
       </div>
@@ -1980,7 +2034,7 @@ function MatchRow({ match: m, data, canManage, onEditMatch, onDeleteMatch, showD
 }
 
 /* ---------- Tournaments ---------- */
-function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onAddTournament, onEditTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch, onAddGroup, onUpdateGroup, onDeleteGroup }) {
+function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onAddTournament, onEditTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch, onAddGroup, onUpdateGroup, onDeleteGroup, onGenerateBracket, onDeleteBracket, onRenameKnockoutRound, onSetSlotBye, onSetSlotMatch, onClearSlot }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("khong_chap");
@@ -2075,6 +2129,8 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, can
               onEditResult={onEditResult} onDeleteResult={onDeleteResult}
               onAddMatch={onAddMatch} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
               onAddGroup={onAddGroup} onUpdateGroup={onUpdateGroup} onDeleteGroup={onDeleteGroup}
+              onGenerateBracket={onGenerateBracket} onDeleteBracket={onDeleteBracket} onRenameKnockoutRound={onRenameKnockoutRound}
+              onSetSlotBye={onSetSlotBye} onSetSlotMatch={onSetSlotMatch} onClearSlot={onClearSlot}
             />
           ))}
         </div>
@@ -2653,34 +2709,387 @@ function GroupsPanel({ tournament, data, canManageGroups, canEnterMatch, canEdit
   );
 }
 
-/* ---------- Tab "Vòng loại trực tiếp" (sơ đồ nhánh đấu) ---------- */
-function KnockoutPanel({ tournament, data, canEnterMatch, canEditMatches, onAddMatch, onEditMatch, onDeleteMatch }) {
-  const matches = data.matches.filter((m) => m.tournament === tournament.id && m.stage && m.stage !== "bang");
-  const byStage = (s) => matches.filter((m) => m.stage === s).sort((x, y) => x.id - y.id);
+/* ---------- Sơ đồ vòng loại trực tiếp: hằng số dùng chung ---------- */
+const KNOCKOUT_SIZES = [2, 4, 8, 16, 32];
+const KNOCKOUT_DEFAULT_NAMES = { 1: "Chung kết", 2: "Bán kết", 4: "Tứ kết", 8: "Vòng 1/8", 16: "Vòng 1/16", 32: "Vòng 1/32" };
 
-  // Thứ tự cột sơ đồ: các vòng đấu TỰ ĐẶT TÊN xếp theo thứ tự trận đầu tiên được nhập (trực quan,
-  // đúng như tiến trình thật của giải) — "Bán kết" và "Chung kết" luôn là 2 cột CUỐI CÙNG vì đây
-  // là 2 giai đoạn cố định của mọi giải loại trực tiếp.
+/* ---------- Form "Tạo sơ đồ đấu": chọn số trận vòng đầu, sinh toàn bộ khung tới Chung kết ---------- */
+function GenerateBracketForm({ onGenerate }) {
+  const [size, setSize] = useState(8);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const preview = useMemo(() => {
+    const rows = [];
+    let n = size;
+    while (n >= 1) { rows.push(KNOCKOUT_DEFAULT_NAMES[n] || `Vòng ${n} trận`); n = n / 2; }
+    return rows;
+  }, [size]);
+
+  async function submit() {
+    setError(""); setBusy(true);
+    try { await onGenerate(size); }
+    catch (err) { setError(err.message || "Có lỗi khi tạo sơ đồ."); setBusy(false); return; }
+    setBusy(false);
+  }
+
+  return (
+    <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 16 }} className="flex flex-col gap-3">
+      <div style={{ fontWeight: 700 }}>Tạo sơ đồ đấu</div>
+      <Field label="Số trận ở vòng đầu tiên">
+        <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
+          {KNOCKOUT_SIZES.map((s) => (
+            <button
+              key={s} type="button" onClick={() => setSize(s)}
+              style={{ ...(size === s ? btnPrimary : btnGhost), padding: "8px 16px", fontSize: 13.5 }}
+            >
+              {s} trận <span style={{ opacity: 0.75 }}>({s * 2} chỗ)</span>
+            </button>
+          ))}
+        </div>
+      </Field>
+      <div style={{ fontSize: 12.5, color: C.muted }}>
+        Sơ đồ sẽ có {preview.length} vòng: {preview.join(" → ")}. Nếu số VĐV thực tế ít hơn số chỗ, dùng tùy chọn
+        "Miễn đấu (BYE)" khi xếp cặp để VĐV đó vào thẳng vòng sau — đặt tên lại từng vòng được sau khi tạo.
+      </div>
+      {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
+      <div><button type="button" style={btnPrimary} onClick={submit} disabled={busy}>{busy ? "Đang tạo…" : "Tạo sơ đồ"}</button></div>
+    </div>
+  );
+}
+
+/* ---------- Sơ đồ cũ (trước khi có tính năng này): chỉ xem/sửa/xóa, không tạo trận mới kiểu này nữa ---------- */
+function LegacyKnockoutView({ matches, data, canEditMatches, onEditMatch, onDeleteMatch }) {
+  const byStage = (s) => matches.filter((m) => m.stage === s).sort((x, y) => x.id - y.id);
   const minIdOf = (s) => Math.min(...matches.filter((m) => m.stage === s).map((m) => m.id));
   const customStages = [...new Set(matches.map((m) => m.stage))]
     .filter((s) => s !== "ban_ket" && s !== "chung_ket")
     .sort((sA, sB) => minIdOf(sA) - minIdOf(sB));
   const stageOrder = [...customStages, "ban_ket", "chung_ket"].filter((s) => byStage(s).length > 0);
 
-  const finalDone = byStage("chung_ket").find((m) => m.status === "completed");
-  const champion = finalDone
-    ? namesOf(finalDone.winner_side === "A" ? [finalDone.player_a, finalDone.player_a2] : [finalDone.player_b, finalDone.player_b2], data.players)
-    : [];
+  return (
+    <div className="flex flex-col gap-3">
+      <div style={{ fontSize: 12.5, color: C.muted, background: C.ink + "0A", border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 12px" }}>
+        Các trận bên dưới được nhập theo cách cũ (trước khi có sơ đồ trực quan). Vẫn xem/sửa/xóa được như bình thường — bấm "Tạo sơ đồ đấu" ở trên để dùng sơ đồ có đường dẫn tự động cho các trận tiếp theo.
+      </div>
+      <div className="tt-bracket">
+        {stageOrder.map((s) => (
+          <div key={s} className="tt-bracket-col">
+            <div className="flex flex-col gap-2">
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: s === "chung_ket" ? C.accent : C.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                {stageLabel(s)}
+              </div>
+              {byStage(s).map((m) => <BracketMatchCard key={m.id} match={m} players={data.players} />)}
+            </div>
+          </div>
+        ))}
+      </div>
+      {canEditMatches && (
+        <>
+          <div style={{ fontWeight: 700, fontSize: 15, marginTop: 4 }}>Quản lý trận (sửa / xóa)</div>
+          <div className="tt-matchlist" style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 16px" }}>
+            {[...matches].sort((x, y) => stageOrder.indexOf(x.stage) - stageOrder.indexOf(y.stage) || x.id - y.id).map((m) => (
+              <MatchRow
+                key={m.id} match={m} data={data} canManage onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
+                showDate={false} stageBadge={{ text: stageLabel(m.stage), color: C.accent }}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---------- 1 ô trong sơ đồ: trống / miễn đấu (BYE) / đã có trận ---------- */
+function KnockoutSlotCard({ slot, allSlots, canFill, canOverride, onOpenFill }) {
+  const hasMatch = !!slot.match;
+  const hasBye = !!slot.bye_player_name;
+  const filled = hasMatch || hasBye;
+
+  const feederA = allSlots.find((s) => s.round_no === slot.round_no - 1 && s.slot_index === slot.slot_index * 2);
+  const feederB = allSlots.find((s) => s.round_no === slot.round_no - 1 && s.slot_index === slot.slot_index * 2 + 1);
+  const readyToFill = slot.round_no === 1 || (!!feederA?.winner_player_id && !!feederB?.winner_player_id);
+  const clickable = !filled && readyToFill && (canFill || canOverride);
+
+  if (hasMatch) {
+    return (
+      <div style={{ position: "relative" }}>
+        <BracketMatchCard match={slot.match} players={[]} />
+        {canOverride && (
+          <button
+            type="button" aria-label="Sửa ô này" onClick={onOpenFill}
+            style={{
+              position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: "50%",
+              border: "none", background: "rgba(255,255,255,0.92)", color: C.ink, fontSize: 12,
+              cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+            }}
+          >
+            ✎
+          </button>
+        )}
+        {slot.locked && (
+          <div style={{ marginTop: 3, fontSize: 10.5, color: C.muted, textAlign: "center" }}>🔒 Đã khóa (vòng sau đã có kết quả)</div>
+        )}
+      </div>
+    );
+  }
+
+  if (hasBye) {
+    const names = [slot.bye_player_name, slot.bye_player2_name].filter(Boolean).join(" & ");
+    return (
+      <div style={{ position: "relative", background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "10px 12px" }}>
+        <div style={{ fontWeight: 800, fontSize: 13.5, color: C.ink }}>{names}</div>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: C.gold, marginTop: 2 }}>MIỄN ĐẤU (BYE) — VÀO THẲNG VÒNG SAU</div>
+        {canOverride && (
+          <button
+            type="button" aria-label="Sửa ô này" onClick={onOpenFill}
+            style={{
+              position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: "50%",
+              border: "none", background: C.bg, color: C.ink, fontSize: 12, cursor: "pointer",
+            }}
+          >
+            ✎
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (!readyToFill) {
+    const known = [feederA?.winner_name, feederB?.winner_name].filter(Boolean);
+    return (
+      <div style={{ background: C.bg, border: `1px dashed ${C.line}`, borderRadius: 12, padding: "10px 12px", opacity: 0.8 }}>
+        <div style={{ fontSize: 12.5, color: C.muted }}>Chờ kết quả vòng trước…</div>
+        {known.length > 0 && <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>Đã biết: {known.join(" — ")}</div>}
+      </div>
+    );
+  }
+
+  // Trống, sẵn sàng xếp cặp
+  const suggested = slot.round_no > 1 ? [feederA?.winner_name, feederB?.winner_name].filter(Boolean) : [];
+  return clickable ? (
+    <button
+      type="button" onClick={onOpenFill}
+      style={{
+        width: "100%", textAlign: "left", background: C.ink + "0A", border: `1.5px dashed ${C.ink}55`, borderRadius: 12,
+        padding: "10px 12px", cursor: "pointer", color: C.ink, fontFamily: "inherit",
+      }}
+    >
+      <div style={{ fontSize: 12.5, fontWeight: 700 }}>+ Xếp cặp đấu</div>
+      {suggested.length > 0 && <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>Dự kiến: {suggested.join(" vs ")}</div>}
+    </button>
+  ) : (
+    <div style={{ background: C.bg, border: `1px dashed ${C.line}`, borderRadius: 12, padding: "10px 12px" }}>
+      <div style={{ fontSize: 12.5, color: C.muted }}>Chưa xếp cặp</div>
+    </div>
+  );
+}
+
+/* ---------- Popup xếp cặp 1 ô sơ đồ: trận đấu thật HOẶC miễn đấu (BYE) ---------- */
+function SlotFillModal({ slot, players, suggested, onClose, onSetBye, onSetMatch, onClear, canClear }) {
+  const existingMatch = slot.match;
+  const isBye = !!slot.bye_player_name;
+  const [fillType, setFillType] = useState(isBye ? "bye" : "match");
+  const [mode, setMode] = useState(slot.mode || "don");
+  const [status, setStatus] = useState(existingMatch ? existingMatch.status : "completed");
+  const [a, setA] = useState(existingMatch ? String(existingMatch.player_a) : (isBye ? String(slot.bye_player) : (suggested?.aId ? String(suggested.aId) : "")));
+  const [a2, setA2] = useState(existingMatch?.player_a2 ? String(existingMatch.player_a2) : (isBye && slot.bye_player2 ? String(slot.bye_player2) : (suggested?.a2Id ? String(suggested.a2Id) : "")));
+  const [b, setB] = useState(existingMatch ? String(existingMatch.player_b) : (suggested?.bId ? String(suggested.bId) : ""));
+  const [b2, setB2] = useState(existingMatch?.player_b2 ? String(existingMatch.player_b2) : (suggested?.b2Id ? String(suggested.b2Id) : ""));
+  const [setsA, setSetsA] = useState(existingMatch?.sets_a ?? 3);
+  const [setsB, setSetsB] = useState(existingMatch?.sets_b ?? 0);
+  const [handicapA, setHandicapA] = useState(existingMatch?.handicap_a || "");
+  const [handicapB, setHandicapB] = useState(existingMatch?.handicap_b || "");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const scheduled = status === "scheduled";
+
+  async function submit(e) {
+    e.preventDefault();
+    setError("");
+    if (fillType === "bye") {
+      if (!a) { setError("Hãy chọn VĐV được miễn đấu."); return; }
+      if (mode === "doi" && !a2) { setError("Đánh đôi cần chọn đủ 2 VĐV cho bên miễn đấu."); return; }
+      setBusy(true);
+      try { await onSetBye(slot.id, { mode, playerId: Number(a), player2Id: mode === "doi" ? Number(a2) : null }); }
+      catch (err) { setError(err.message || "Có lỗi khi lưu."); setBusy(false); return; }
+      setBusy(false); onClose(); return;
+    }
+    const ids = mode === "doi" ? [a, a2, b, b2] : [a, b];
+    if (ids.some((x) => !x)) { setError("Hãy chọn đủ VĐV cho trận đấu."); return; }
+    if (new Set(ids).size !== ids.length) { setError("Các VĐV trong trận phải khác nhau."); return; }
+    if (!scheduled && Number(setsA) === Number(setsB)) { setError("Tỷ số không thể hòa."); return; }
+    if (handicapA.trim() && !HANDICAP_FORMAT_RE.test(handicapA.trim())) { setError("Điểm chấp VĐV A không đúng định dạng (VD: 2-0-2)."); return; }
+    if (handicapB.trim() && !HANDICAP_FORMAT_RE.test(handicapB.trim())) { setError("Điểm chấp VĐV B không đúng định dạng (VD: 2-0-2)."); return; }
+    setBusy(true);
+    try {
+      await onSetMatch(slot.id, {
+        mode, status, playerAId: Number(a), playerBId: Number(b),
+        playerA2Id: mode === "doi" ? Number(a2) : undefined, playerB2Id: mode === "doi" ? Number(b2) : undefined,
+        setsA: scheduled ? null : Number(setsA), setsB: scheduled ? null : Number(setsB),
+        handicapA: handicapA.trim(), handicapB: handicapB.trim(),
+      });
+    } catch (err) { setError(err.message || "Có lỗi khi lưu."); setBusy(false); return; }
+    setBusy(false); onClose();
+  }
+
+  async function doClear() {
+    if (!window.confirm("Bỏ trống lại ô này? Trận/VĐV miễn đấu hiện tại (nếu có) sẽ bị xóa, điểm Elo liên quan (nếu có) sẽ được hoàn tác.")) return;
+    setError(""); setBusy(true);
+    try { await onClear(slot.id); }
+    catch (err) { setError(err.message || "Có lỗi."); setBusy(false); return; }
+    setBusy(false); onClose();
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", zIndex: 85, overflowY: "auto", padding: "3vh 10px" }}>
+      <form onSubmit={submit} style={{ background: C.surface, borderRadius: 16, maxWidth: 560, margin: "0 auto", padding: 20 }} className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>
+              {slot.stage_name} — Trận {slot.slot_index + 1}
+            </div>
+            <div style={{ fontSize: 17, fontWeight: 800, fontFamily: FONT_DISPLAY }}>Xếp cặp đấu</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Đóng" style={{ ...btnGhost, padding: "6px 14px", flexShrink: 0 }}>✕</button>
+        </div>
+
+        {slot.locked ? (
+          <div style={{ color: C.bad, fontSize: 13 }}>
+            Không thể sửa ô này — vòng sau đã có trận hoàn tất dựa trên kết quả ô này. Hãy xóa trận đó trước rồi mới quay lại sửa ô này.
+          </div>
+        ) : (
+          <>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setFillType("match")} style={{ ...(fillType === "match" ? btnPrimary : btnGhost), padding: "8px 14px", fontSize: 13 }}>Trận đấu</button>
+              <button type="button" onClick={() => setFillType("bye")} style={{ ...(fillType === "bye" ? btnPrimary : btnGhost), padding: "8px 14px", fontSize: 13 }}>Miễn đấu (BYE)</button>
+            </div>
+
+            <Field label="Thể thức">
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { setMode("don"); setA2(""); setB2(""); }} style={{ ...(mode === "don" ? btnPrimary : btnGhost), padding: "8px 14px", fontSize: 13 }}>Đánh đơn</button>
+                <button type="button" onClick={() => setMode("doi")} style={{ ...(mode === "doi" ? btnPrimary : btnGhost), padding: "8px 14px", fontSize: 13 }}>Đánh đôi</button>
+              </div>
+            </Field>
+
+            {fillType === "bye" ? (
+              <div className="flex flex-col gap-2">
+                <Field label={mode === "doi" ? "Cặp miễn đấu — VĐV 1" : "VĐV miễn đấu"}>
+                  <PlayerCombobox players={players} value={a} onChange={setA} excludeIds={[Number(a2)].filter(Boolean)} />
+                </Field>
+                {mode === "doi" && (
+                  <Field label="Cặp miễn đấu — VĐV 2">
+                    <PlayerCombobox players={players} value={a2} onChange={setA2} excludeIds={[Number(a)].filter(Boolean)} />
+                  </Field>
+                )}
+                <div style={{ fontSize: 11.5, color: C.muted }}>VĐV/cặp này coi như thắng ngay, vào thẳng vòng sau — không tính điểm Elo.</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+                  <div className="flex flex-col gap-2">
+                    <Field label={mode === "doi" ? "Đội A — VĐV 1" : "VĐV A"}><PlayerCombobox players={players} value={a} onChange={setA} excludeIds={[Number(b), Number(a2), Number(b2)].filter(Boolean)} /></Field>
+                    {mode === "doi" && <Field label="Đội A — VĐV 2"><PlayerCombobox players={players} value={a2} onChange={setA2} excludeIds={[Number(a), Number(b), Number(b2)].filter(Boolean)} /></Field>}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Field label={mode === "doi" ? "Đội B — VĐV 1" : "VĐV B"}><PlayerCombobox players={players} value={b} onChange={setB} excludeIds={[Number(a), Number(a2), Number(b2)].filter(Boolean)} /></Field>
+                    {mode === "doi" && <Field label="Đội B — VĐV 2"><PlayerCombobox players={players} value={b2} onChange={setB2} excludeIds={[Number(a), Number(a2), Number(b)].filter(Boolean)} /></Field>}
+                  </div>
+                </div>
+
+                <Field label="Trạng thái trận đấu">
+                  <div className="flex gap-4" style={{ fontSize: 14 }}>
+                    <label className="flex items-center gap-1.5" style={{ cursor: "pointer" }}>
+                      <input type="radio" name="slot-status" checked={!scheduled} onChange={() => setStatus("completed")} /> Kết thúc
+                    </label>
+                    <label className="flex items-center gap-1.5" style={{ cursor: "pointer" }}>
+                      <input type="radio" name="slot-status" checked={scheduled} onChange={() => setStatus("scheduled")} /> Sắp diễn ra
+                    </label>
+                  </div>
+                </Field>
+
+                {!scheduled && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+                    <Field label="Số ván thắng — bên A"><input type="number" min="0" style={inputStyle} value={setsA} onChange={(e) => setSetsA(e.target.value)} /></Field>
+                    <Field label="Số ván thắng — bên B"><input type="number" min="0" style={inputStyle} value={setsB} onChange={(e) => setSetsB(e.target.value)} /></Field>
+                  </div>
+                )}
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+                  <Field label="Điểm chấp — bên A (nếu có)"><input style={inputStyle} placeholder="VD: 2-0-2" value={handicapA} onChange={(e) => setHandicapA(e.target.value)} /></Field>
+                  <Field label="Điểm chấp — bên B (nếu có)"><input style={inputStyle} placeholder="VD: 2-0-2" value={handicapB} onChange={(e) => setHandicapB(e.target.value)} /></Field>
+                </div>
+              </>
+            )}
+
+            {error && <div style={{ color: C.bad, fontSize: 13 }}>{error}</div>}
+
+            <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
+              <button type="submit" style={btnPrimary} disabled={busy}>{busy ? "Đang lưu…" : "Lưu"}</button>
+              {canClear && (existingMatch || isBye) && (
+                <button type="button" style={{ ...btnGhost, color: C.bad, borderColor: C.bad + "55" }} onClick={doClear} disabled={busy}>Bỏ trống ô này</button>
+              )}
+              <button type="button" style={btnGhost} onClick={onClose}>Hủy</button>
+            </div>
+          </>
+        )}
+      </form>
+    </div>
+  );
+}
+
+/* ---------- Tab "Vòng loại trực tiếp" (sơ đồ nhánh đấu) ---------- */
+function KnockoutPanel({
+  tournament, data, canGenerateBracket, canEnterMatch, canEditMatches,
+  onAddMatch, onEditMatch, onDeleteMatch,
+  onGenerateBracket, onDeleteBracket, onRenameKnockoutRound, onSetSlotBye, onSetSlotMatch, onClearSlot,
+}) {
+  const legacyMatches = data.matches.filter((m) => m.tournament === tournament.id && m.stage && m.stage !== "bang");
+  const slots = (data.knockoutSlots || []).filter((s) => s.tournament === tournament.id);
+  const [fillSlotId, setFillSlotId] = useState(null);
+  const [renamingRound, setRenamingRound] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  if (slots.length === 0) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div style={{ fontWeight: 700, fontSize: 15 }}>Vòng loại trực tiếp</div>
+        {canGenerateBracket && <GenerateBracketForm onGenerate={(size) => onGenerateBracket(tournament.id, size)} />}
+        {legacyMatches.length > 0 ? (
+          <LegacyKnockoutView matches={legacyMatches} data={data} canEditMatches={canEditMatches} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} />
+        ) : (
+          !canGenerateBracket && <EmptyState text="Giải đấu này chưa có sơ đồ vòng loại trực tiếp." />
+        )}
+      </div>
+    );
+  }
+
+  const rounds = [...new Set(slots.map((s) => s.round_no))].sort((x, y) => x - y);
+  const slotsOf = (r) => slots.filter((s) => s.round_no === r).sort((x, y) => x.slot_index - y.slot_index);
+  const finalRound = rounds[rounds.length - 1];
+  const finalSlot = slotsOf(finalRound)[0];
+  const champion = finalSlot?.winner_name ? [finalSlot.winner_name, finalSlot.winner_name2].filter(Boolean) : [];
+  const managedMatches = slots.filter((s) => s.match).map((s) => ({ ...s.match, __stage: s.stage_name }));
+  const fillSlot = slots.find((s) => s.id === fillSlotId);
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between" style={{ flexWrap: "wrap", gap: 8 }}>
-        <div style={{ fontWeight: 700, fontSize: 15 }}>Vòng loại trực tiếp ({matches.length} trận)</div>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>Sơ đồ vòng loại trực tiếp</div>
+        {canEditMatches && (
+          <button
+            type="button" style={{ ...btnGhost, color: C.bad, borderColor: C.bad + "55" }}
+            onClick={async () => {
+              if (!window.confirm(`Xóa toàn bộ sơ đồ của giải "${tournament.name}"?\n\nMọi trận đã nhập trong sơ đồ sẽ bị xóa, điểm Elo liên quan sẽ được hoàn tác. Hành động này không thể hoàn tác.`)) return;
+              await onDeleteBracket(tournament.id);
+            }}
+          >
+            Xóa sơ đồ
+          </button>
+        )}
       </div>
-
-      {canEnterMatch && (
-        <TournamentMatchForm tournament={tournament} players={data.players} groups={[]} kind="knockout" onAddMatch={onAddMatch} />
-      )}
 
       {champion.length > 0 && (
         <div style={{ background: C.accent + "12", border: `1px solid ${C.accent}40`, borderRadius: 14, padding: "12px 16px" }}>
@@ -2689,31 +3098,75 @@ function KnockoutPanel({ tournament, data, canEnterMatch, canEditMatches, onAddM
         </div>
       )}
 
-      {matches.length === 0 ? (
-        <EmptyState text="Chưa có trận loại trực tiếp nào — nhập trận ở nút “+ Nhập trận đấu”, đặt tên vòng đấu tuỳ ý (Vòng 1/8, Vòng 1/16, Tứ kết…) hoặc chọn Bán kết/Chung kết." />
-      ) : (
-        <div className="tt-bracket">
-          {stageOrder.map((s) => (
-            <div key={s} className="tt-bracket-col">
-              <div className="flex flex-col gap-2">
-                <div style={{ fontSize: 11.5, fontWeight: 800, color: s === "chung_ket" ? C.accent : C.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                  {stageLabel(s)}
-                </div>
-                {byStage(s).map((m) => <BracketMatchCard key={m.id} match={m} players={data.players} />)}
+      <div className="tt-bracket">
+        {rounds.map((r) => (
+          <div key={r} className="tt-bracket-col">
+            <div className="flex items-center gap-1.5" style={{ marginBottom: 2 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: r === finalRound ? C.accent : C.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                {slotsOf(r)[0]?.stage_name}
               </div>
+              {canEditMatches && renamingRound !== r && (
+                <button
+                  type="button" aria-label="Đổi tên vòng"
+                  onClick={() => { setRenamingRound(r); setRenameValue(slotsOf(r)[0]?.stage_name || ""); }}
+                  style={{ border: "none", background: "transparent", color: C.muted, cursor: "pointer", fontSize: 12, padding: 2 }}
+                >
+                  ✎
+                </button>
+              )}
             </div>
-          ))}
-        </div>
+            {renamingRound === r && (
+              <form
+                className="flex gap-1.5" style={{ marginBottom: 6 }}
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!renameValue.trim()) return;
+                  await onRenameKnockoutRound(tournament.id, r, renameValue.trim());
+                  setRenamingRound(null);
+                }}
+              >
+                <input style={{ ...inputStyle, padding: "6px 8px", fontSize: 13 }} value={renameValue} onChange={(e) => setRenameValue(e.target.value)} maxLength={30} autoFocus />
+                <button type="submit" style={{ ...btnPrimary, padding: "6px 10px", fontSize: 12 }}>Lưu</button>
+                <button type="button" style={{ ...btnGhost, padding: "6px 10px", fontSize: 12 }} onClick={() => setRenamingRound(null)}>✕</button>
+              </form>
+            )}
+            <div className="flex flex-col gap-2">
+              {slotsOf(r).map((slot) => (
+                <KnockoutSlotCard
+                  key={slot.id} slot={slot} allSlots={slots}
+                  canFill={canEnterMatch} canOverride={canEditMatches}
+                  onOpenFill={() => setFillSlotId(slot.id)}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {fillSlot && (
+        <SlotFillModal
+          slot={fillSlot}
+          players={data.players}
+          suggested={(() => {
+            if (fillSlot.round_no === 1) return null;
+            const fa = slots.find((s) => s.round_no === fillSlot.round_no - 1 && s.slot_index === fillSlot.slot_index * 2);
+            const fb = slots.find((s) => s.round_no === fillSlot.round_no - 1 && s.slot_index === fillSlot.slot_index * 2 + 1);
+            return { aId: fa?.winner_player_id, a2Id: fa?.winner_player2_id, bId: fb?.winner_player_id, b2Id: fb?.winner_player2_id };
+          })()}
+          onClose={() => setFillSlotId(null)}
+          onSetBye={onSetSlotBye} onSetMatch={onSetSlotMatch} onClear={onClearSlot}
+          canClear={canEditMatches}
+        />
       )}
 
-      {canEditMatches && matches.length > 0 && (
+      {canEditMatches && managedMatches.length > 0 && (
         <>
           <div style={{ fontWeight: 700, fontSize: 15, marginTop: 4 }}>Quản lý trận (sửa / xóa)</div>
           <div className="tt-matchlist" style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "6px 16px" }}>
-            {[...matches].sort((x, y) => stageOrder.indexOf(x.stage) - stageOrder.indexOf(y.stage) || x.id - y.id).map((m) => (
+            {managedMatches.sort((x, y) => x.id - y.id).map((m) => (
               <MatchRow
                 key={m.id} match={m} data={data} canManage onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch}
-                showDate={false} stageBadge={{ text: stageLabel(m.stage), color: C.accent }}
+                showDate={false} stageBadge={{ text: m.__stage, color: C.accent }}
               />
             ))}
           </div>
@@ -2850,8 +3303,11 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
         )}
         {tab === "knockout" && (
           <KnockoutPanel
-            tournament={t} data={data} canEnterMatch={perms.canEnterMatches && isOpen} canEditMatches={perms.canManageMatches}
+            tournament={t} data={data}
+            canGenerateBracket={perms.canEnterResults} canEnterMatch={perms.canEnterMatches && isOpen} canEditMatches={perms.canManageMatches}
             onAddMatch={handlers.onAddMatch} onEditMatch={handlers.onEditMatch} onDeleteMatch={handlers.onDeleteMatch}
+            onGenerateBracket={handlers.onGenerateBracket} onDeleteBracket={handlers.onDeleteBracket} onRenameKnockoutRound={handlers.onRenameKnockoutRound}
+            onSetSlotBye={handlers.onSetSlotBye} onSetSlotMatch={handlers.onSetSlotMatch} onClearSlot={handlers.onClearSlot}
           />
         )}
         {tab === "results" && (
@@ -2866,7 +3322,7 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
 }
 
 /* ---------- Thẻ giải đấu (gọn): thông tin + nút mở popup ---------- */
-function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onEditTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch, onAddGroup, onUpdateGroup, onDeleteGroup }) {
+function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onEditTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch, onAddGroup, onUpdateGroup, onDeleteGroup, onGenerateBracket, onDeleteBracket, onRenameKnockoutRound, onSetSlotBye, onSetSlotMatch, onClearSlot }) {
   const [showManage, setShowManage] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const matches = data.matches.filter((m) => m.tournament === t.id);
@@ -2927,7 +3383,10 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
         <TournamentManageModal
           tournament={t} data={data} onClose={() => setShowManage(false)}
           perms={{ canManage, canEnterResults, canEnterMatches, canManageMatches }}
-          handlers={{ onAddGroup, onUpdateGroup, onDeleteGroup, onAddMatch, onEditMatch, onDeleteMatch, onAddResult, onEditResult, onDeleteResult }}
+          handlers={{
+            onAddGroup, onUpdateGroup, onDeleteGroup, onAddMatch, onEditMatch, onDeleteMatch, onAddResult, onEditResult, onDeleteResult,
+            onGenerateBracket, onDeleteBracket, onRenameKnockoutRound, onSetSlotBye, onSetSlotMatch, onClearSlot,
+          }}
         />
       )}
 

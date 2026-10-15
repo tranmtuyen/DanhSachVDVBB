@@ -180,6 +180,68 @@ class Match(models.Model):
         return f"{self.player_a} {self.sets_a}-{self.sets_b} {self.player_b}"
 
 
+class KnockoutSlot(models.Model):
+    """1 "ô" trong SƠ ĐỒ vòng loại trực tiếp — sinh sẵn hàng loạt khi tạo sơ đồ (xem
+    services.generate_bracket), đại diện cho 1 vị trí trận đấu trong cây đấu.
+
+    round_no = 1 là vòng ĐẦU TIÊN (nhiều ô nhất); vòng cuối (round_no lớn nhất, chỉ 1 ô) luôn là
+    Chung kết. slot_index là vị trí 0-based trong vòng đó. Ô (round_no, slot_index) luôn "nuôi"
+    người thắng vào ô (round_no+1, slot_index // 2) — bên A nếu slot_index chẵn, bên B nếu lẻ —
+    suy ra được từ vị trí, không cần lưu thêm liên kết "next".
+
+    1 ô có 3 trạng thái:
+    - Trống: match=None, bye_player=None (vòng > 1: đang chờ 1 hoặc cả 2 ô vòng trước có kết quả).
+    - "Miễn đấu" (BYE): bye_player (+ bye_player2 nếu đánh đôi) được gán thẳng — VĐV/cặp này coi
+      như thắng ô này ngay lập tức, không có trận, không tính Elo.
+    - Có trận thật: match trỏ tới 1 Match bình thường — Match/Elo không có gì khác các trận khác,
+      chỉ thêm liên kết 2 chiều này để biết trận nào thuộc ô nào của sơ đồ.
+    """
+
+    tournament = models.ForeignKey(Tournament, verbose_name="Giải đấu", on_delete=models.CASCADE, related_name="knockout_slots")
+    round_no = models.PositiveSmallIntegerField("Vòng thứ (1 = vòng đầu tiên)")
+    slot_index = models.PositiveSmallIntegerField("Vị trí trong vòng (0-based)")
+    stage_name = models.CharField("Tên vòng", max_length=30)
+    mode = models.CharField("Thể thức", max_length=10, choices=Match.MODE_CHOICES, default="don")
+    match = models.OneToOneField(
+        Match, verbose_name="Trận đấu", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="knockout_slot"
+    )
+    bye_player = models.ForeignKey(
+        Player, verbose_name="VĐV miễn đấu (BYE)", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="+"
+    )
+    bye_player2 = models.ForeignKey(
+        Player, verbose_name="VĐV miễn đấu 2 (BYE, đánh đôi)", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Ô sơ đồ vòng loại trực tiếp"
+        verbose_name_plural = "Ô sơ đồ vòng loại trực tiếp"
+        ordering = ["round_no", "slot_index"]
+        unique_together = ("tournament", "round_no", "slot_index")
+
+    def __str__(self):
+        return f"{self.tournament} — {self.stage_name} #{self.slot_index + 1}"
+
+    @property
+    def winner(self):
+        """(player, player2|None) THẮNG ô này, hoặc None nếu chưa có kết quả."""
+        if self.bye_player_id:
+            return (self.bye_player, self.bye_player2)
+        if self.match_id and self.match.status == "completed" and self.match.winner_side:
+            m = self.match
+            return (m.player_a, m.player_a2) if m.winner_side == "A" else (m.player_b, m.player_b2)
+        return None
+
+    def next_slot(self):
+        """Ô ở vòng kế tiếp mà ô này nuôi người thắng vào, hoặc None nếu đây đã là Chung kết."""
+        return KnockoutSlot.objects.filter(
+            tournament_id=self.tournament_id, round_no=self.round_no + 1, slot_index=self.slot_index // 2
+        ).first()
+
+
 class TournamentResult(models.Model):
     PLACEMENT_CHOICES = [
         ("vo_dich", "Vô địch"),

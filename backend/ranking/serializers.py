@@ -7,7 +7,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from . import services
-from .models import Match, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
+from .models import KnockoutSlot, Match, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
 
 
 from rest_framework.fields import empty as DRF_EMPTY
@@ -287,6 +287,56 @@ class RankingConfigSerializer(serializers.ModelSerializer):
             "mult_khong_chap", "mult_co_chap", "updated_at",
         ]
         read_only_fields = ["updated_at"]
+
+
+class KnockoutSlotSerializer(serializers.ModelSerializer):
+    """1 ô trong sơ đồ vòng loại trực tiếp — chỉ đọc (mutate qua các action set_bye/set_match/clear
+    ở KnockoutSlotViewSet, không qua create/update thường của ModelViewSet)."""
+    match = MatchSerializer(read_only=True)
+    bye_player_name = serializers.SerializerMethodField()
+    bye_player2_name = serializers.SerializerMethodField()
+    # Tên người/cặp đã THẮNG ô này (từ BYE hoặc trận đã hoàn tất) — để FE tự "điền sẵn" tên vào ô
+    # vòng sau mà không cần gọi thêm API nào khác (suy ra hoàn toàn từ danh sách đã tải).
+    winner_player_id = serializers.SerializerMethodField()
+    winner_player2_id = serializers.SerializerMethodField()
+    winner_name = serializers.SerializerMethodField()
+    winner_name2 = serializers.SerializerMethodField()
+    # true nếu KHÔNG được sửa/xóa ô này nữa vì vòng sau đã có trận hoàn tất dựa trên kết quả ô này.
+    locked = serializers.SerializerMethodField()
+
+    class Meta:
+        model = KnockoutSlot
+        fields = [
+            "id", "tournament", "round_no", "slot_index", "stage_name", "mode", "match",
+            "bye_player", "bye_player_name", "bye_player2", "bye_player2_name",
+            "winner_player_id", "winner_player2_id", "winner_name", "winner_name2", "locked",
+        ]
+
+    def get_bye_player_name(self, obj):
+        return obj.bye_player.name if obj.bye_player_id else None
+
+    def get_bye_player2_name(self, obj):
+        return obj.bye_player2.name if obj.bye_player2_id else None
+
+    def get_winner_player_id(self, obj):
+        w = obj.winner
+        return w[0].id if w and w[0] else None
+
+    def get_winner_player2_id(self, obj):
+        w = obj.winner
+        return w[1].id if w and w[1] else None
+
+    def get_winner_name(self, obj):
+        w = obj.winner
+        return w[0].name if w and w[0] else None
+
+    def get_winner_name2(self, obj):
+        w = obj.winner
+        return w[1].name if w and w[1] else None
+
+    def get_locked(self, obj):
+        nxt = obj.next_slot()
+        return bool(nxt and nxt.match_id and nxt.match.status == "completed")
 
 
 class GroupSerializer(serializers.ModelSerializer):

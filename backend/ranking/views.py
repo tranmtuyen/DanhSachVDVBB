@@ -11,15 +11,15 @@ from django.utils import timezone
 from rest_framework import permissions, viewsets
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from . import services
-from .models import LoginAttempt, Match, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
+from .models import KnockoutSlot, LoginAttempt, Match, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
 from .serializers import (
-    GroupSerializer, MatchCreateSerializer, MatchSerializer, MatchUpdateSerializer, PlayerPhotoSerializer, PlayerSerializer,
-    PointHistorySerializer, RankingConfigSerializer, ResultCreateSerializer, ResultSerializer, ResultUpdateSerializer,
-    TournamentSerializer, UserSerializer,
+    GroupSerializer, KnockoutSlotSerializer, MatchCreateSerializer, MatchSerializer, MatchUpdateSerializer,
+    PlayerPhotoSerializer, PlayerSerializer, PointHistorySerializer, RankingConfigSerializer, ResultCreateSerializer,
+    ResultSerializer, ResultUpdateSerializer, TournamentSerializer, UserSerializer,
 )
 
 RECAPTCHA_THRESHOLD = 5  # Số lần sai liên tiếp trước khi bắt xác minh reCAPTCHA
@@ -67,6 +67,11 @@ def _role_permission(*allowed_roles):
 IsAdminOnly = _role_permission("admin")
 IsAdminOrManager = _role_permission("admin", "manager")
 IsAdminOrManagerOrScorer = _role_permission("admin", "manager", "scorer")
+
+
+def _require_role(request, roles):
+    if services.get_role(request.user) not in roles:
+        raise PermissionDenied("Bạn không có quyền thực hiện thao tác này.")
 
 
 # ================= Đăng nhập / đăng xuất / thông tin bản thân =================
@@ -251,8 +256,9 @@ class TournamentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrManager]
 
     def get_permissions(self):
-        # Xóa giải đấu: chỉ Quản trị viên (vì sẽ hoàn tác điểm hàng loạt). Còn lại giữ nguyên như cũ.
-        if self.action == "destroy":
+        # Xóa giải đấu / xóa sơ đồ đấu / đổi tên vòng đấu: chỉ Quản trị viên (thao tác hoàn tác điểm
+        # hàng loạt hoặc có thể ảnh hưởng dữ liệu đã nhập). Tạo sơ đồ: Admin/Quản lý giải (như tạo giải).
+        if self.action in ("destroy", "delete_bracket", "rename_knockout_round"):
             return [IsAdminOnly()]
         return [IsAdminOrManager()]
 
@@ -260,6 +266,43 @@ class TournamentViewSet(viewsets.ModelViewSet):
         tournament = self.get_object()
         services.delete_tournament(tournament)
         return Response(status=204)
+
+    @action(detail=True, methods=["post"])
+    def generate_bracket(self, request, pk=None):
+        """Sinh toàn bộ khung sơ đồ vòng loại trực tiếp (các ô trống tới Chung kết)."""
+        tournament = self.get_object()
+        try:
+            size = int(request.data.get("first_round_matches"))
+        except (TypeError, ValueError):
+            raise ValidationError("Số trận vòng đầu không hợp lệ.")
+        try:
+            services.generate_bracket(tournament, size)
+        except ValueError as e:
+            raise ValidationError(str(e))
+        slots = KnockoutSlot.objects.filter(tournament=tournament).order_by("round_no", "slot_index")
+        return Response(KnockoutSlotSerializer(slots, many=True).data, status=201)
+
+    @action(detail=True, methods=["post"])
+    def delete_bracket(self, request, pk=None):
+        """Xóa toàn bộ sơ đồ vòng loại trực tiếp (kể cả các trận đã nhập trong đó, hoàn tác điểm)."""
+        tournament = self.get_object()
+        services.delete_bracket(tournament)
+        return Response(status=204)
+
+    @action(detail=True, methods=["patch"])
+    def rename_knockout_round(self, request, pk=None):
+        """Đổi tên 1 vòng đấu trong sơ đồ (áp dụng cho mọi ô + trận đã nhập thuộc vòng đó)."""
+        tournament = self.get_object()
+        try:
+            round_no = int(request.data.get("round_no"))
+        except (TypeError, ValueError):
+            raise ValidationError("Thiếu vòng đấu cần đổi tên.")
+        try:
+            services.rename_knockout_round(tournament, round_no, request.data.get("name", ""))
+        except ValueError as e:
+            raise ValidationError(str(e))
+        slots = KnockoutSlot.objects.filter(tournament=tournament).order_by("round_no", "slot_index")
+        return Response(KnockoutSlotSerializer(slots, many=True).data)
 
 
 class MatchViewSet(viewsets.ModelViewSet):
@@ -318,8 +361,80 @@ class MatchViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         match = self.get_object()
+        slot = getattr(match, "knockout_slot", None)
+        if slot is not None:
+            try:
+                services.ensure_slot_editable(slot)
+            except ValueError as e:
+                raise ValidationError(str(e))
         services.delete_match(match)
         return Response(status=204)
+
+
+class KnockoutSlotViewSet(viewsets.ReadOnlyModelViewSet):
+    """Các ô của sơ đồ vòng loại trực tiếp — ai cũng xem được (giống matches/groups); mọi thay đổi
+    đi qua 3 action dưới đây (không qua create/update thường), để luôn chạy qua đúng services."""
+    queryset = KnockoutSlot.objects.select_related("tournament", "match", "bye_player", "bye_player2").all()
+    serializer_class = KnockoutSlotSerializer
+    permission_classes = [permissions.AllowAny]
+
+    @action(detail=True, methods=["post"])
+    def set_bye(self, request, pk=None):
+        slot = self.get_object()
+        occupied = bool(slot.match_id or slot.bye_player_id)
+        _require_role(request, ["admin"] if occupied else ["admin", "manager", "scorer"])
+
+        mode = request.data.get("mode", "don")
+        if mode not in ("don", "doi"):
+            raise ValidationError("Thể thức không hợp lệ.")
+        player_id = request.data.get("player")
+        if not player_id:
+            raise ValidationError("Thiếu VĐV được miễn đấu (BYE).")
+        player = Player.objects.filter(id=player_id).first()
+        if not player:
+            raise ValidationError("Không tìm thấy VĐV.")
+        player2 = None
+        if mode == "doi":
+            player2_id = request.data.get("player2")
+            player2 = Player.objects.filter(id=player2_id).first() if player2_id else None
+            if not player2:
+                raise ValidationError("Ô đánh đôi cần chọn đủ 2 VĐV cho bên miễn đấu.")
+
+        try:
+            services.set_slot_bye(slot, mode=mode, player=player, player2=player2)
+        except ValueError as e:
+            raise ValidationError(str(e))
+        return Response(KnockoutSlotSerializer(slot).data)
+
+    @action(detail=True, methods=["post"])
+    def set_match(self, request, pk=None):
+        slot = self.get_object()
+        occupied = bool(slot.match_id or slot.bye_player_id)
+        _require_role(request, ["admin"] if occupied else ["admin", "manager", "scorer"])
+
+        serializer = MatchCreateSerializer(data={**request.data, "tournament": slot.tournament_id, "stage": slot.stage_name, "group": None})
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        try:
+            services.set_slot_match(
+                slot, mode=d.get("mode", "don"), player_a=d["player_a"], player_b=d["player_b"],
+                player_a2=d.get("player_a2"), player_b2=d.get("player_b2"),
+                sets_a=d.get("sets_a"), sets_b=d.get("sets_b"), status=d.get("status", "completed"),
+                handicap_a=d.get("handicap_a", ""), handicap_b=d.get("handicap_b", ""), date=d.get("date"),
+            )
+        except ValueError as e:
+            raise ValidationError(str(e))
+        return Response(KnockoutSlotSerializer(slot).data)
+
+    @action(detail=True, methods=["post"])
+    def clear(self, request, pk=None):
+        slot = self.get_object()
+        _require_role(request, ["admin"])
+        try:
+            services.clear_slot(slot)
+        except ValueError as e:
+            raise ValidationError(str(e))
+        return Response(KnockoutSlotSerializer(slot).data)
 
 
 class ResultViewSet(viewsets.ModelViewSet):

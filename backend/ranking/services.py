@@ -11,7 +11,7 @@ import urllib.parse
 import urllib.request
 
 from django.utils import timezone
-from .models import Match, PointHistory, Tournament, TournamentResult
+from .models import KnockoutSlot, Match, PointHistory, Tournament, TournamentResult
 
 
 def verify_recaptcha(token, remote_ip=None):
@@ -453,7 +453,8 @@ def delete_tournament(tournament):
     """
     Xóa giải đấu: xóa toàn bộ trận đấu của giải (hoàn tác điểm cho VĐV liên quan),
     xóa toàn bộ thành tích/điểm thưởng của giải (hoàn tác điểm cho VĐV nhận thưởng),
-    rồi mới xóa chính giải đấu đó.
+    rồi mới xóa chính giải đấu đó. (KnockoutSlot tự xóa theo vì on_delete=CASCADE trên tournament;
+    Match của các ô đã bị xóa sạch ở vòng lặp trên nên không còn gì để hoàn tác thêm.)
     """
     for m in Match.objects.filter(tournament=tournament):
         _revert(m)
@@ -463,3 +464,115 @@ def delete_tournament(tournament):
         delete_result(r)
 
     tournament.delete()
+
+
+# ================= Sơ đồ vòng loại trực tiếp (KnockoutSlot) =================
+
+KNOCKOUT_ALLOWED_SIZES = [2, 4, 8, 16, 32]
+KNOCKOUT_DEFAULT_STAGE_NAMES = {
+    1: "Chung kết", 2: "Bán kết", 4: "Tứ kết", 8: "Vòng 1/8", 16: "Vòng 1/16", 32: "Vòng 1/32",
+}
+
+
+def generate_bracket(tournament, first_round_matches):
+    """Sinh toàn bộ "khung" sơ đồ (các ô trống, từ vòng đầu tới Chung kết) cho 1 giải đấu.
+    `first_round_matches` = số trận ở vòng đầu tiên (2/4/8/16/32) — vòng sau luôn bằng nửa vòng
+    trước, cho tới khi còn 1 ô = Chung kết. Chỉ tạo được khi giải CHƯA có sơ đồ nào."""
+    if first_round_matches not in KNOCKOUT_ALLOWED_SIZES:
+        raise ValueError("Số trận vòng đầu không hợp lệ (chỉ chọn 2, 4, 8, 16 hoặc 32).")
+    if KnockoutSlot.objects.filter(tournament=tournament).exists():
+        raise ValueError("Giải đấu này đã có sơ đồ — hãy xóa sơ đồ cũ trước khi tạo lại.")
+
+    size = first_round_matches
+    round_no = 1
+    slots = []
+    while size >= 1:
+        name = KNOCKOUT_DEFAULT_STAGE_NAMES.get(size, f"Vòng {size} trận")
+        for i in range(size):
+            slots.append(KnockoutSlot(tournament=tournament, round_no=round_no, slot_index=i, stage_name=name))
+        size //= 2
+        round_no += 1
+    KnockoutSlot.objects.bulk_create(slots)
+    return list(KnockoutSlot.objects.filter(tournament=tournament).order_by("round_no", "slot_index"))
+
+
+def delete_bracket(tournament):
+    """Xóa toàn bộ sơ đồ của giải — xóa luôn mọi trận đã nhập trong sơ đồ (hoàn tác điểm Elo)."""
+    for slot in KnockoutSlot.objects.filter(tournament=tournament, match__isnull=False):
+        delete_match(slot.match)
+    KnockoutSlot.objects.filter(tournament=tournament).delete()
+
+
+def rename_knockout_round(tournament, round_no, new_name):
+    """Đổi tên 1 vòng đấu (áp dụng cho mọi ô trong vòng đó + đồng bộ sang Match.stage của các
+    trận đã nhập thuộc vòng đó, để các chỗ hiển thị khác trong app vẫn đúng tên)."""
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise ValueError("Tên vòng không được để trống.")
+    slots = KnockoutSlot.objects.filter(tournament=tournament, round_no=round_no)
+    if not slots.exists():
+        raise ValueError("Không tìm thấy vòng đấu này.")
+    slots.update(stage_name=new_name)
+    Match.objects.filter(knockout_slot__in=slots).update(stage=new_name)
+    return list(slots)
+
+
+def ensure_slot_editable(slot):
+    """Chặn sửa/xóa 1 ô nếu ô kế tiếp (vòng sau) ĐÃ có trận HOÀN TẤT (đã tính điểm Elo) dựa trên
+    người thắng của ô này — an toàn hơn: phải xóa trận vòng sau đó trước thì mới sửa được ô này."""
+    nxt = slot.next_slot()
+    if nxt and nxt.match_id and nxt.match.status == "completed":
+        raise ValueError(
+            f"Không thể sửa — vòng sau (\"{nxt.stage_name}\") đã có trận hoàn tất dựa trên kết quả ô này. "
+            "Hãy xóa trận đó trước rồi mới sửa lại ô này."
+        )
+
+
+def set_slot_bye(slot, *, mode, player, player2=None):
+    """Đánh dấu 1 ô là MIỄN ĐẤU (BYE): chỉ 1 VĐV (hoặc 1 cặp, nếu đánh đôi) — coi như thắng ngay,
+    không tính Elo. Nếu ô đang có trận/BYE cũ, xóa/hoàn tác trước khi gán lại."""
+    ensure_slot_editable(slot)
+    if mode == "doi" and not player2:
+        raise ValueError("Ô đánh đôi cần chọn đủ 2 VĐV cho bên miễn đấu.")
+    if mode == "don" and player2:
+        raise ValueError("Ô đánh đơn chỉ chọn 1 VĐV miễn đấu.")
+    if slot.match_id:
+        delete_match(slot.match)
+    slot.match = None
+    slot.mode = mode
+    slot.bye_player = player
+    slot.bye_player2 = player2 if mode == "doi" else None
+    slot.save(update_fields=["match", "mode", "bye_player", "bye_player2"])
+    return slot
+
+
+def set_slot_match(slot, *, mode, player_a, player_b, player_a2=None, player_b2=None,
+                    sets_a=None, sets_b=None, status="completed", handicap_a="", handicap_b="", date=None):
+    """Xếp 1 trận đấu thật vào ô (ghi đè trận/BYE cũ nếu có, hoàn tác điểm của dữ liệu cũ trước)."""
+    ensure_slot_editable(slot)
+    if slot.match_id:
+        delete_match(slot.match)
+    match = record_match(
+        tournament=slot.tournament, mode=mode, player_a=player_a, player_b=player_b,
+        player_a2=player_a2, player_b2=player_b2, sets_a=sets_a, sets_b=sets_b,
+        date=date, status=status, stage=slot.stage_name, group=None,
+        handicap_a=handicap_a, handicap_b=handicap_b,
+    )
+    slot.mode = mode
+    slot.match = match
+    slot.bye_player = None
+    slot.bye_player2 = None
+    slot.save(update_fields=["mode", "match", "bye_player", "bye_player2"])
+    return slot
+
+
+def clear_slot(slot):
+    """Bỏ trống lại 1 ô: xóa BYE hoặc xóa trận gắn với ô (hoàn tác điểm nếu trận đã hoàn tất)."""
+    ensure_slot_editable(slot)
+    if slot.match_id:
+        delete_match(slot.match)
+    slot.match = None
+    slot.bye_player = None
+    slot.bye_player2 = None
+    slot.save(update_fields=["match", "bye_player", "bye_player2"])
+    return slot
