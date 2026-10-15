@@ -20,12 +20,24 @@ class Player(models.Model):
     birth_year = models.PositiveIntegerField("Năm sinh", null=True, blank=True)
     id_number = models.CharField("CCCD", max_length=20, blank=True, default="")
     rating = models.IntegerField("Điểm rating", default=1000)
+    # "Điểm gốc" — KHÔNG hiển thị ở đâu trong giao diện hiện tại, chỉ lưu sẵn làm dữ liệu nền cho các
+    # tính năng tương lai. Định nghĩa: điểm gốc = điểm khởi tạo (lúc tạo VĐV) +/- các lần Quản trị
+    # viên SỬA TAY điểm (services.adjust_rating). KHÔNG bao giờ bị ảnh hưởng bởi điểm thắng/thua trận
+    # đấu (Elo) hay điểm thưởng thành tích giải — 2 nguồn đó chỉ thay đổi `rating`, không đụng tới đây.
+    # Tự động gán = rating lúc tạo mới (xem save() bên dưới); tự động cộng/trừ theo đúng delta mỗi khi
+    # adjust_rating() chạy (xem services.py) — không có chỗ nào khác được phép ghi đè trường này.
+    base_rating = models.IntegerField("Điểm gốc", default=1000)
     join_date = models.DateField("Ngày tham gia CLB", auto_now_add=True)
 
     class Meta:
         verbose_name = "Vận động viên"
         verbose_name_plural = "Vận động viên"
         ordering = ["-rating"]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            self.base_rating = self.rating
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

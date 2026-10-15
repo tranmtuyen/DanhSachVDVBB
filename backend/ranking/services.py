@@ -332,16 +332,21 @@ def set_linked_player(user, player):
 
 
 def adjust_rating(player, new_rating, reason=None):
-    """Admin chỉnh sửa trực tiếp điểm rating của VĐV, có ghi lại lịch sử điểm."""
+    """Admin chỉnh sửa trực tiếp điểm rating của VĐV, có ghi lại lịch sử điểm.
+    Đây là nguồn DUY NHẤT (ngoài lúc tạo VĐV) được phép làm thay đổi "điểm gốc" (base_rating) —
+    cộng/trừ đúng bằng delta vừa áp dụng cho rating, để base_rating luôn đúng định nghĩa
+    "điểm khởi tạo +/- điểm Quản trị viên sửa tay", không bị điểm trận đấu/thưởng ảnh hưởng."""
     new_rating = int(new_rating)
     if new_rating == player.rating:
         return None
     before = player.rating
+    delta = new_rating - before
     player.rating = new_rating
-    player.save(update_fields=["rating"])
+    player.base_rating += delta
+    player.save(update_fields=["rating", "base_rating"])
     return PointHistory.objects.create(
         player=player, date=timezone.localdate(), before=before, after=new_rating,
-        delta=new_rating - before, reason=reason or "Quản trị viên chỉnh sửa điểm thủ công",
+        delta=delta, reason=reason or "Quản trị viên chỉnh sửa điểm thủ công",
     )
 
 
