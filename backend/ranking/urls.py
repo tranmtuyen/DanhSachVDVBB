@@ -2,9 +2,9 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
-    GroupViewSet, KnockoutSlotViewSet, MatchMediaViewSet, MatchViewSet, PlayerViewSet, PointHistoryViewSet,
-    ResultViewSet, TournamentViewSet, UserViewSet, change_password_view, login_view, logout_view, me_view,
-    ranking_config_view, update_my_photo_view,
+    GroupViewSet, HandicapRuleViewSet, KnockoutSlotViewSet, MatchMediaViewSet, MatchViewSet, PlayerViewSet,
+    PointHistoryViewSet, ResultViewSet, TournamentViewSet, UserViewSet, change_password_view, login_view,
+    logout_view, me_view, ranking_config_view, update_my_photo_view,
 )
 
 router = DefaultRouter()
@@ -14,6 +14,7 @@ router.register("groups", GroupViewSet)
 router.register("matches", MatchViewSet)
 router.register("knockout-slots", KnockoutSlotViewSet)
 router.register("match-media", MatchMediaViewSet)
+router.register("handicap-rules", HandicapRuleViewSet)
 router.register("results", ResultViewSet)
 router.register("history", PointHistoryViewSet)
 router.register("users", UserViewSet)

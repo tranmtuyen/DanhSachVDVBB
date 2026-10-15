@@ -17,13 +17,14 @@ from rest_framework.response import Response
 
 from . import services
 from .models import (
-    KnockoutSlot, LoginAttempt, Match, MatchMedia, Player, PointHistory, RankingConfig, Tournament,
+    HandicapRule, KnockoutSlot, LoginAttempt, Match, MatchMedia, Player, PointHistory, RankingConfig, Tournament,
     TournamentGroup, TournamentResult,
 )
 from .serializers import (
-    GroupSerializer, KnockoutSlotSerializer, MatchCreateSerializer, MatchMediaSerializer, MatchSerializer,
-    MatchUpdateSerializer, PlayerPhotoSerializer, PlayerSerializer, PointHistorySerializer, RankingConfigSerializer,
-    ResultCreateSerializer, ResultSerializer, ResultUpdateSerializer, TournamentSerializer, UserSerializer,
+    GroupSerializer, HandicapRuleSerializer, KnockoutSlotSerializer, MatchCreateSerializer, MatchMediaSerializer,
+    MatchSerializer, MatchUpdateSerializer, PlayerPhotoSerializer, PlayerSerializer, PointHistorySerializer,
+    RankingConfigSerializer, ResultCreateSerializer, ResultSerializer, ResultUpdateSerializer, TournamentSerializer,
+    UserSerializer,
 )
 
 RECAPTCHA_THRESHOLD = 5  # Số lần sai liên tiếp trước khi bắt xác minh reCAPTCHA
@@ -562,6 +563,19 @@ class PointHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PointHistory.objects.all().order_by("-created_at")
     serializer_class = PointHistorySerializer
     permission_classes = [permissions.AllowAny]
+
+
+class HandicapRuleViewSet(viewsets.ModelViewSet):
+    """Quy tắc điểm chấp (tab "Điểm chấp" trong Quản lý điểm): ai cũng xem được (dùng để đề xuất
+    điểm chấp ở giao diện nhập trận), chỉ Admin được thêm/sửa/xóa (giống Cấu hình chung)."""
+    queryset = HandicapRule.objects.all().order_by("min_diff")
+    serializer_class = HandicapRuleSerializer
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.AllowAny()]
+        return [IsAdminOnly()]
 
 
 @api_view(["GET", "PATCH"])

@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 
 from django.utils import timezone
-from .models import KnockoutSlot, Match, MatchMedia, PointHistory, Tournament, TournamentResult
+from .models import HandicapRule, KnockoutSlot, Match, MatchMedia, PointHistory, Tournament, TournamentResult
 
 
 def verify_recaptcha(token, remote_ip=None):
@@ -631,3 +631,44 @@ def add_match_youtube(match, *, youtube_url, caption="", user=None):
 
 def delete_match_media(media):
     media.delete()
+
+
+# ================= Quy tắc điểm chấp (HandicapRule) =================
+# Tab "Điểm chấp" trong trang Quản lý điểm (chỉ Admin). Thuần dữ liệu cấu hình, không ảnh hưởng
+# cách tính điểm — chỉ dùng để ĐỀ XUẤT điểm chấp ở giao diện nhập trận khi giải/giao hữu "Có chấp điểm".
+
+def _ranges_overlap(min_a, max_a, min_b, max_b):
+    """So 2 khoảng [min, max] (max=None nghĩa là +∞) có giao nhau không."""
+    hi_a = max_a if max_a is not None else float("inf")
+    hi_b = max_b if max_b is not None else float("inf")
+    return min_a <= hi_b and min_b <= hi_a
+
+
+def validate_handicap_rule_range(min_diff, max_diff, exclude_id=None):
+    if max_diff is not None and max_diff < min_diff:
+        raise ValueError("Giá trị \"Đến\" phải lớn hơn hoặc bằng \"Từ\".")
+    qs = HandicapRule.objects.all()
+    if exclude_id is not None:
+        qs = qs.exclude(id=exclude_id)
+    for rule in qs:
+        if _ranges_overlap(min_diff, max_diff, rule.min_diff, rule.max_diff):
+            rng = f"{rule.min_diff}–{rule.max_diff}" if rule.max_diff is not None else f"{rule.min_diff} trở lên"
+            raise ValueError(f"Khoảng này chồng lấn với quy tắc đã có ({rng}) — hãy chỉnh lại cho không trùng nhau.")
+
+
+def create_handicap_rule(*, min_diff, max_diff, handicap_text):
+    validate_handicap_rule_range(min_diff, max_diff)
+    return HandicapRule.objects.create(min_diff=min_diff, max_diff=max_diff, handicap_text=handicap_text or "")
+
+
+def update_handicap_rule(rule, *, min_diff, max_diff, handicap_text):
+    validate_handicap_rule_range(min_diff, max_diff, exclude_id=rule.id)
+    rule.min_diff = min_diff
+    rule.max_diff = max_diff
+    rule.handicap_text = handicap_text or ""
+    rule.save(update_fields=["min_diff", "max_diff", "handicap_text"])
+    return rule
+
+
+def delete_handicap_rule(rule):
+    rule.delete()

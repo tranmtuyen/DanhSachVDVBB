@@ -422,3 +422,23 @@ class RankingConfig(models.Model):
     def get_solo(cls):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+class HandicapRule(models.Model):
+    """1 "khoảng" quy tắc điểm chấp, chỉnh ở tab "Điểm chấp" (trang Quản lý điểm, chỉ Admin):
+    chênh lệch điểm rating giữa 2 VĐV rơi vào [min_diff, max_diff] -> đề xuất điểm chấp handicap_text
+    (VD: 50-99 -> "0-2-0"). max_diff = NULL nghĩa là "trở lên", không giới hạn trên. handicap_text
+    rỗng nghĩa là "không chấp" cho khoảng đó (VD: 0-49). Chỉ dùng để ĐỀ XUẤT ở giao diện nhập trận —
+    không tự động áp dụng, không ảnh hưởng cách tính điểm (giống handicap_a/handicap_b của Match)."""
+    min_diff = models.PositiveIntegerField("Chênh lệch điểm — Từ")
+    max_diff = models.PositiveIntegerField("Chênh lệch điểm — Đến (để trống = trở lên)", null=True, blank=True)
+    handicap_text = models.CharField("Điểm chấp đề xuất", max_length=20, blank=True, default="")
+
+    class Meta:
+        verbose_name = "Quy tắc điểm chấp"
+        verbose_name_plural = "Quy tắc điểm chấp"
+        ordering = ["min_diff"]
+
+    def __str__(self):
+        rng = f"{self.min_diff}–{self.max_diff}" if self.max_diff is not None else f"{self.min_diff}+"
+        return f"{rng} = {self.handicap_text or 'Không chấp'}"

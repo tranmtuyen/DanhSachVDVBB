@@ -54,6 +54,71 @@ function computeMatchDeltaPreview(rA, rB, winner, loaiGiai) {
   return { deltaA, deltaB: -deltaA };
 }
 
+/* ---------- Điểm chấp đề xuất: tra bảng quy tắc (ranking/Điểm chấp) theo chênh lệch điểm ----------
+   Trả về chuỗi điểm chấp (vd "0-2-0", "" = không chấp) nếu tìm thấy quy tắc khớp, hoặc null nếu
+   chênh lệch này chưa được cấu hình quy tắc nào. */
+function findHandicapSuggestion(rules, diff) {
+  if (diff === null || diff === undefined) return null;
+  const match = (rules || []).find((r) => diff >= r.min_diff && (r.max_diff === null || r.max_diff === undefined || diff <= r.max_diff));
+  return match ? (match.handicap_text || "") : null;
+}
+
+/* ---------- Khối nhập điểm chấp dùng chung cho 3 form nhập trận (EnterMatchTab/TournamentMatchForm/
+   SlotFillModal): khi giải "Có chấp điểm" và thể thức Đánh đơn, hiện check "Điểm chấp đề xuất" — tick
+   vào thì tự tính chênh lệch rating 2 bên, tra quy tắc để điền sẵn (bên yếu hơn được chấp), khóa không
+   cho tự sửa; bỏ check thì quay lại tự nhập như cũ. */
+function HandicapFields({ tournamentType, mode, pA, pB, handicapA, handicapB, setHandicapA, setHandicapB, rules }) {
+  const [useSuggestion, setUseSuggestion] = useState(false);
+  const canSuggest = tournamentType === "co_chap" && mode !== "doi";
+
+  useEffect(() => {
+    if (!canSuggest && useSuggestion) setUseSuggestion(false);
+  }, [canSuggest]);
+
+  useEffect(() => {
+    if (!useSuggestion || !canSuggest) return;
+    if (!pA || !pB) return;
+    const diff = Math.abs(pA.rating - pB.rating);
+    const suggestion = findHandicapSuggestion(rules, diff);
+    if (suggestion === null) { setHandicapA(""); setHandicapB(""); return; }
+    if (pA.rating <= pB.rating) { setHandicapA(suggestion); setHandicapB(""); }
+    else { setHandicapA(""); setHandicapB(suggestion); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useSuggestion, canSuggest, pA?.rating, pB?.rating, rules]);
+
+  const diffNow = canSuggest && pA && pB ? Math.abs(pA.rating - pB.rating) : null;
+  const suggestionNow = diffNow !== null ? findHandicapSuggestion(rules, diffNow) : null;
+
+  return (
+    <>
+      {canSuggest && (
+        <label className="flex items-center gap-2" style={{ fontSize: 13.5, cursor: "pointer" }}>
+          <input type="checkbox" checked={useSuggestion} onChange={(e) => setUseSuggestion(e.target.checked)} />
+          Điểm chấp đề xuất (tự tính theo chênh lệch điểm 2 bên)
+        </label>
+      )}
+      <div className="grid grid-cols-2 gap-4">
+        <Field label={`Điểm chấp — ${mode === "doi" ? "Đội A" : "VĐV A"} (nếu có)`}>
+          <input style={inputStyle} placeholder="VD: 2-0-2" value={handicapA} disabled={useSuggestion} onChange={(e) => setHandicapA(e.target.value)} />
+        </Field>
+        <Field label={`Điểm chấp — ${mode === "doi" ? "Đội B" : "VĐV B"} (nếu có)`}>
+          <input style={inputStyle} placeholder="VD: 2-0-2" value={handicapB} disabled={useSuggestion} onChange={(e) => setHandicapB(e.target.value)} />
+        </Field>
+      </div>
+      {canSuggest && useSuggestion && pA && pB && (
+        <div style={{ fontSize: 11.5, color: C.muted, marginTop: -10 }}>
+          {suggestionNow === null
+            ? `Chênh lệch ${diffNow} điểm — chưa có quy tắc nào khớp (xem Quản lý điểm → Điểm chấp), hãy bỏ check để tự nhập.`
+            : `Chênh lệch ${diffNow} điểm → ${suggestionNow ? `đề xuất chấp ${suggestionNow}` : "không chấp"}.`}
+        </div>
+      )}
+      <div style={{ fontSize: 11.5, color: C.muted, marginTop: -10 }}>
+        Chỉ nhập cho bên được chấp điểm, để trống nếu không chấp. Điểm chấp chỉ mang tính ghi chú hiển thị, không ảnh hưởng cách tính điểm.
+      </div>
+    </>
+  );
+}
+
 function fmtDate(d) {
   if (!d) return "";
   try {
@@ -538,6 +603,7 @@ export default function App() {
   const [tournaments, setTournaments] = useState([]);
   const [matches, setMatches] = useState([]);
   const [knockoutSlots, setKnockoutSlots] = useState([]);
+  const [handicapRules, setHandicapRules] = useState([]);
   const [results, setResults] = useState([]);
   const [history, setHistory] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -588,11 +654,13 @@ export default function App() {
 
   async function refreshAll() {
     try {
-      const [p, t, m, r, h, g, ks] = await Promise.all([
+      const [p, t, m, r, h, g, ks, hr] = await Promise.all([
         apiGet("/players/"), apiGet("/tournaments/"), apiGet("/matches/"),
         apiGet("/results/"), apiGet("/history/"), apiGet("/groups/"), apiGet("/knockout-slots/"),
+        apiGet("/handicap-rules/"),
       ]);
       setPlayers(p); setTournaments(t); setMatches(m); setResults(r); setHistory(h); setGroups(g); setKnockoutSlots(ks);
+      setHandicapRules(hr);
       setLoadError("");
     } catch (e) {
       setLoadError(`Không kết nối được tới backend tại ${API_ORIGIN}. Hãy chắc chắn Django đang chạy.`);
@@ -762,6 +830,19 @@ export default function App() {
     return apiPatchJSON("/ranking-config/", patch);
   }
 
+  async function addHandicapRule({ minDiff, maxDiff, handicapText }) {
+    await apiPostJSON("/handicap-rules/", { min_diff: minDiff, max_diff: maxDiff ?? null, handicap_text: handicapText || "" });
+    await refreshAll();
+  }
+  async function editHandicapRule(ruleId, { minDiff, maxDiff, handicapText }) {
+    await apiPatchJSON(`/handicap-rules/${ruleId}/`, { min_diff: minDiff, max_diff: maxDiff ?? null, handicap_text: handicapText || "" });
+    await refreshAll();
+  }
+  async function deleteHandicapRule(ruleId) {
+    await apiDelete(`/handicap-rules/${ruleId}/`);
+    await refreshAll();
+  }
+
   async function changeMyPhoto(photoFile) {
     const fd = new FormData();
     fd.append("photo", photoFile);
@@ -790,7 +871,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
 
-  const data = { players, tournaments, matches, results, history, groups, knockoutSlots };
+  const data = { players, tournaments, matches, results, history, groups, knockoutSlots, handicapRules };
 
   if (!loaded) {
     return <div style={{ fontFamily: FONT_BODY, color: C.muted, padding: 40 }}>Đang tải dữ liệu…</div>;
@@ -1008,7 +1089,11 @@ export default function App() {
           )}
 
           {tab === "ranking-config" && role === "admin" && (
-            <RankingConfigTab onFetch={fetchRankingConfig} onSave={saveRankingConfig} />
+            <RankingConfigTab
+              onFetch={fetchRankingConfig} onSave={saveRankingConfig}
+              handicapRules={handicapRules}
+              onAddHandicapRule={addHandicapRule} onEditHandicapRule={editHandicapRule} onDeleteHandicapRule={deleteHandicapRule}
+            />
           )}
 
           {tab === "profile" && currentUser && (
@@ -2672,7 +2757,7 @@ function GroupCard({ group, tournamentGroups, matches, players, canManage, onUpd
 }
 
 /* ---------- Form nhập 1 trận trong giải (vòng bảng hoặc loại trực tiếp) ---------- */
-function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) {
+function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch, handicapRules }) {
   const [open, setOpen] = useState(false);
   const [groupId, setGroupId] = useState("");
   // Vòng đấu (chỉ áp dụng kind==="knockout"): "ban_ket" / "chung_ket" là 2 giá trị cố định;
@@ -2691,6 +2776,8 @@ function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) 
   const group = kind === "group" ? groups.find((g) => String(g.id) === gid) : null;
   const pool = kind === "group" ? players.filter((p) => group?.players.includes(p.id)) : players;
   const scheduled = status === "scheduled";
+  const pA = pool.find((p) => p.id === Number(a));
+  const pB = pool.find((p) => p.id === Number(b));
   const stage = kind === "group" ? "bang" : (stageMode === "custom" ? customStage.trim() : stageMode);
 
   function resetPlayers() { setA(""); setA2(""); setB(""); setB2(""); }
@@ -2807,13 +2894,11 @@ function TournamentMatchForm({ tournament, players, groups, kind, onAddMatch }) 
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
-        <Field label="Điểm chấp — bên A (nếu có)"><input style={inputStyle} placeholder="VD: 2-0-2" value={handicapA} onChange={(e) => setHandicapA(e.target.value)} /></Field>
-        <Field label="Điểm chấp — bên B (nếu có)"><input style={inputStyle} placeholder="VD: 2-0-2" value={handicapB} onChange={(e) => setHandicapB(e.target.value)} /></Field>
-      </div>
-      <div style={{ fontSize: 11.5, color: C.muted, marginTop: -6 }}>
-        Chỉ nhập cho bên được chấp điểm, để trống nếu không chấp. Điểm chấp chỉ mang tính ghi chú hiển thị, không ảnh hưởng cách tính điểm.
-      </div>
+      <HandicapFields
+        tournamentType={tournament.type} mode={mode} pA={pA} pB={pB}
+        handicapA={handicapA} handicapB={handicapB} setHandicapA={setHandicapA} setHandicapB={setHandicapB}
+        rules={handicapRules}
+      />
 
       {kind === "group" && pool.length < 2 && (
         <div style={{ fontSize: 13, color: C.muted }}>Bảng này chưa đủ 2 VĐV — hãy bấm "Sửa VĐV" ở thẻ bảng để thêm VĐV.</div>
@@ -2903,7 +2988,7 @@ function GroupsPanel({ tournament, data, canManageGroups, canEnterMatch, canEdit
       )}
 
       {canEnterMatch && groups.length > 0 && (
-        <TournamentMatchForm tournament={tournament} players={data.players} groups={groups} kind="group" onAddMatch={onAddMatch} />
+        <TournamentMatchForm tournament={tournament} players={data.players} groups={groups} kind="group" onAddMatch={onAddMatch} handicapRules={data.handicapRules} />
       )}
 
       {unassigned.length > 0 && (
@@ -3098,7 +3183,7 @@ function KnockoutSlotCard({ slot, allSlots, players, canFill, canOverride, onOpe
 }
 
 /* ---------- Popup xếp cặp 1 ô sơ đồ: trận đấu thật HOẶC miễn đấu (BYE) ---------- */
-function SlotFillModal({ slot, players, suggested, excludeIds, onClose, onSetBye, onSetMatch, onClear, canClear }) {
+function SlotFillModal({ slot, players, suggested, excludeIds, onClose, onSetBye, onSetMatch, onClear, canClear, tournamentType, handicapRules }) {
   const roundExcludeIds = excludeIds || [];
   const existingMatch = slot.match;
   const isBye = !!slot.bye_player_name;
@@ -3117,6 +3202,8 @@ function SlotFillModal({ slot, players, suggested, excludeIds, onClose, onSetBye
   const [busy, setBusy] = useState(false);
 
   const scheduled = status === "scheduled";
+  const pA = players.find((p) => p.id === Number(a));
+  const pB = players.find((p) => p.id === Number(b));
 
   async function submit(e) {
     e.preventDefault();
@@ -3229,10 +3316,11 @@ function SlotFillModal({ slot, players, suggested, excludeIds, onClose, onSetBye
                   </div>
                 )}
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
-                  <Field label="Điểm chấp — bên A (nếu có)"><input style={inputStyle} placeholder="VD: 2-0-2" value={handicapA} onChange={(e) => setHandicapA(e.target.value)} /></Field>
-                  <Field label="Điểm chấp — bên B (nếu có)"><input style={inputStyle} placeholder="VD: 2-0-2" value={handicapB} onChange={(e) => setHandicapB(e.target.value)} /></Field>
-                </div>
+                <HandicapFields
+                  tournamentType={tournamentType} mode={mode} pA={pA} pB={pB}
+                  handicapA={handicapA} handicapB={handicapB} setHandicapA={setHandicapA} setHandicapB={setHandicapB}
+                  rules={handicapRules}
+                />
               </>
             )}
 
@@ -3359,6 +3447,8 @@ function KnockoutPanel({
         <SlotFillModal
           slot={fillSlot}
           players={data.players}
+          tournamentType={tournament.type}
+          handicapRules={data.handicapRules}
           suggested={(() => {
             if (fillSlot.round_no === 1) return null;
             const fa = slots.find((s) => s.round_no === fillSlot.round_no - 1 && s.slot_index === fillSlot.slot_index * 2);
@@ -3848,17 +3938,11 @@ function EnterMatchTab({ data, onAddMatch }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <Field label={`Điểm chấp — ${mode === "doi" ? "Đội A" : "VĐV A"} (nếu có)`}>
-          <input style={inputStyle} placeholder="VD: 2-0-2" value={handicapA} onChange={(e) => setHandicapA(e.target.value)} />
-        </Field>
-        <Field label={`Điểm chấp — ${mode === "doi" ? "Đội B" : "VĐV B"} (nếu có)`}>
-          <input style={inputStyle} placeholder="VD: 2-0-2" value={handicapB} onChange={(e) => setHandicapB(e.target.value)} />
-        </Field>
-      </div>
-      <div style={{ fontSize: 11.5, color: C.muted, marginTop: -10 }}>
-        Chỉ nhập cho bên được chấp điểm, để trống nếu không chấp. Điểm chấp chỉ mang tính ghi chú hiển thị, không ảnh hưởng cách tính điểm.
-      </div>
+      <HandicapFields
+        tournamentType={effectiveType} mode={mode} pA={pA} pB={pB}
+        handicapA={handicapA} handicapB={handicapB} setHandicapA={setHandicapA} setHandicapB={setHandicapB}
+        rules={data.handicapRules}
+      />
 
       {isScheduled ? (
         <div style={{ fontSize: 13.5, color: C.muted, background: C.bg, borderRadius: 8, padding: "10px 12px" }}>
@@ -4160,7 +4244,8 @@ const ROLE_OPTIONS = [
 ];
 
 /* ---------- Trang Quản lý điểm (chỉ Admin) ---------- */
-function RankingConfigTab({ onFetch, onSave }) {
+function RankingConfigTab({ onFetch, onSave, handicapRules, onAddHandicapRule, onEditHandicapRule, onDeleteHandicapRule }) {
+  const [subTab, setSubTab] = useState("general");
   const [cfg, setCfg] = useState(null);
   const [form, setForm] = useState(null);
   const [loadErr, setLoadErr] = useState("");
@@ -4204,19 +4289,41 @@ function RankingConfigTab({ onFetch, onSave }) {
     setSaving(false);
   }
 
-  if (loadErr) return <EmptyState text={loadErr} />;
-  if (!form) return null;
-
-  const bonusPreview = [
+  const bonusPreview = form ? [
     ["vo_dich", "Vô địch"], ["a_quan", "Á quân"], ["hang_ba", "Hạng Ba"], ["tu_ket", "Tứ kết"],
   ].map(([key, label]) => ({
     label,
     khongChap: Math.round(Number(form[`bonus_${key}`] || 0) * Number(form.mult_khong_chap || 0)),
     coChap: Math.round(Number(form[`bonus_${key}`] || 0) * Number(form.mult_co_chap || 0)),
-  }));
+  })) : [];
+
+  const subTabs = [
+    { id: "general", label: "Cấu hình chung" },
+    { id: "handicap", label: "Điểm chấp" },
+  ];
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex gap-2" style={{ overflowX: "auto", paddingBottom: 2 }}>
+        {subTabs.map((tb) => (
+          <button
+            key={tb.id} type="button" onClick={() => setSubTab(tb.id)}
+            style={{ ...(subTab === tb.id ? btnPrimary : btnGhost), padding: "8px 16px", fontSize: 13.5, whiteSpace: "nowrap" }}
+          >
+            {tb.label}
+          </button>
+        ))}
+      </div>
+
+      {subTab === "handicap" && (
+        <HandicapRulesPanel
+          rules={handicapRules} onAdd={onAddHandicapRule} onEdit={onEditHandicapRule} onDelete={onDeleteHandicapRule}
+        />
+      )}
+
+      {subTab === "general" && loadErr && <EmptyState text={loadErr} />}
+      {subTab === "general" && form && (
+      <>
       {/* Hướng dẫn */}
       <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 20 }} className="flex flex-col gap-3">
         <div style={{ fontSize: 17, fontWeight: 700, fontFamily: FONT_DISPLAY }}>Cách CLB tính điểm</div>
@@ -4331,6 +4438,121 @@ function RankingConfigTab({ onFetch, onSave }) {
           <div style={{ fontSize: 11.5, color: C.muted }}>
             Lưu ý: thay đổi ở đây chỉ áp dụng cho các trận đấu/thành tích được ghi nhận SAU khi lưu — không tính lại các trận đã có từ trước.
           </div>
+        </div>
+      </form>
+      </>
+      )}
+    </div>
+  );
+}
+
+function HandicapRulesPanel({ rules, onAdd, onEdit, onDelete }) {
+  const empty = { minDiff: "", maxDiff: "", handicapText: "" };
+  const [form, setForm] = useState(empty);
+  const [editingId, setEditingId] = useState(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const sorted = [...(rules || [])].sort((a, b) => a.min_diff - b.min_diff);
+
+  function startEdit(r) {
+    setEditingId(r.id);
+    setForm({ minDiff: String(r.min_diff), maxDiff: r.max_diff === null || r.max_diff === undefined ? "" : String(r.max_diff), handicapText: r.handicap_text || "" });
+    setErr("");
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setForm(empty);
+    setErr("");
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    setErr(""); setBusy(true);
+    const minDiff = Number(form.minDiff);
+    const maxDiff = form.maxDiff === "" ? null : Number(form.maxDiff);
+    const handicapText = (form.handicapText || "").trim();
+    if (handicapText && !HANDICAP_FORMAT_RE.test(handicapText)) {
+      setErr("Điểm chấp chỉ được nhập dạng số cách nhau bởi dấu gạch ngang, ví dụ: 2-0-2. Để trống nếu khoảng này không chấp.");
+      setBusy(false);
+      return;
+    }
+    try {
+      if (editingId) await onEdit(editingId, { minDiff, maxDiff, handicapText });
+      else await onAdd({ minDiff, maxDiff, handicapText });
+      cancelEdit();
+    } catch (ex) {
+      setErr(ex.message || "Có lỗi khi lưu quy tắc.");
+    }
+    setBusy(false);
+  }
+
+  async function remove(r) {
+    if (!window.confirm(`Xóa quy tắc "${r.min_diff}–${r.max_diff ?? "trở lên"}"?`)) return;
+    setErr("");
+    try {
+      await onDelete(r.id);
+    } catch (ex) {
+      setErr(ex.message || "Có lỗi khi xóa.");
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 20 }} className="flex flex-col gap-3">
+        <div style={{ fontSize: 17, fontWeight: 700, fontFamily: FONT_DISPLAY }}>Quy tắc điểm chấp</div>
+        <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+          Mỗi khoảng chênh lệch điểm rating giữa 2 VĐV ứng với 1 mức điểm chấp đề xuất (VD: chênh lệch 50–99 → đề xuất "0-2-0").
+          Để trống "Điểm chấp" nếu khoảng đó <b>không chấp</b>. Các khoảng không được chồng lấn nhau. Quy tắc này chỉ dùng để{" "}
+          <b>đề xuất</b> ở giao diện nhập trận khi giải/giao hữu là "Có chấp điểm" — không tự động áp dụng.
+        </div>
+      </div>
+
+      <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 20 }} className="flex flex-col gap-3">
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "4px 8px" }}>Chênh lệch điểm — Từ</th>
+              <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "4px 8px" }}>Đến (trống = trở lên)</th>
+              <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "4px 8px" }}>Điểm chấp đề xuất</th>
+              <th style={{ padding: "4px 8px" }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => (
+              <tr key={r.id} style={{ borderTop: `1px solid ${C.line}` }}>
+                <td className="tabular" style={{ padding: "6px 8px", fontSize: 13.5 }}>{r.min_diff}</td>
+                <td className="tabular" style={{ padding: "6px 8px", fontSize: 13.5 }}>{r.max_diff ?? "trở lên"}</td>
+                <td className="tabular" style={{ padding: "6px 8px", fontSize: 13.5 }}>{r.handicap_text || <span style={{ color: C.muted }}>Không chấp</span>}</td>
+                <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                  <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5 }} onClick={() => startEdit(r)}>Sửa</button>{" "}
+                  <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5, color: C.bad }} onClick={() => remove(r)}>Xóa</button>
+                </td>
+              </tr>
+            ))}
+            {sorted.length === 0 && (
+              <tr><td colSpan={4} style={{ padding: "16px 8px" }}><EmptyState text="Chưa có quy tắc điểm chấp nào." /></td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <form onSubmit={submit} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: 20 }} className="flex flex-col gap-3">
+        <div style={{ fontWeight: 700, fontSize: 14.5 }}>{editingId ? "Sửa quy tắc" : "Thêm quy tắc mới"}</div>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Chênh lệch điểm — Từ">
+            <input type="number" min="0" style={inputStyle} value={form.minDiff} onChange={(e) => setForm((f) => ({ ...f, minDiff: e.target.value }))} required />
+          </Field>
+          <Field label="Đến (để trống = trở lên)">
+            <input type="number" min="0" style={inputStyle} value={form.maxDiff} onChange={(e) => setForm((f) => ({ ...f, maxDiff: e.target.value }))} />
+          </Field>
+          <Field label="Điểm chấp đề xuất (để trống = không chấp)">
+            <input type="text" placeholder="VD: 2-0-2" style={inputStyle} value={form.handicapText} onChange={(e) => setForm((f) => ({ ...f, handicapText: e.target.value }))} />
+          </Field>
+        </div>
+        {err && <div style={{ color: C.bad, fontSize: 13 }}>{err}</div>}
+        <div className="flex items-center gap-3">
+          <button type="submit" style={btnPrimary} disabled={busy}>{busy ? "Đang lưu…" : editingId ? "Lưu thay đổi" : "Thêm quy tắc"}</button>
+          {editingId && <button type="button" style={btnGhost} onClick={cancelEdit}>Hủy</button>}
         </div>
       </form>
     </div>

@@ -7,7 +7,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from . import services
-from .models import KnockoutSlot, Match, MatchMedia, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
+from .models import HandicapRule, KnockoutSlot, Match, MatchMedia, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
 
 
 from rest_framework.fields import empty as DRF_EMPTY
@@ -310,6 +310,31 @@ class RankingConfigSerializer(serializers.ModelSerializer):
             "mult_khong_chap", "mult_co_chap", "updated_at",
         ]
         read_only_fields = ["updated_at"]
+
+
+class HandicapRuleSerializer(serializers.ModelSerializer):
+    """1 khoảng quy tắc điểm chấp — validate khoảng (min<=max, không chồng lấn với khoảng khác)
+    qua services.validate_handicap_rule_range(), và định dạng handicap_text giống Match.handicap_a/b."""
+    min_diff = serializers.IntegerField(min_value=0)
+    max_diff = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+
+    class Meta:
+        model = HandicapRule
+        fields = ["id", "min_diff", "max_diff", "handicap_text"]
+
+    def validate_handicap_text(self, value):
+        return _clean_handicap(value)
+
+    def validate(self, attrs):
+        min_diff = attrs.get("min_diff", getattr(self.instance, "min_diff", None))
+        max_diff = attrs.get("max_diff", getattr(self.instance, "max_diff", None))
+        try:
+            services.validate_handicap_rule_range(
+                min_diff, max_diff, exclude_id=self.instance.id if self.instance else None
+            )
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+        return attrs
 
 
 class KnockoutSlotSerializer(serializers.ModelSerializer):
