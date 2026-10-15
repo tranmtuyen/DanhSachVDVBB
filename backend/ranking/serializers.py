@@ -129,10 +129,16 @@ class PlayerPhotoSerializer(serializers.ModelSerializer):
 class TournamentSerializer(serializers.ModelSerializer):
     # Nếu không gửi "date_to" (hoặc gửi null): coi như giải 1 ngày — tự lấy bằng "date" (xem validate()).
     date_to = serializers.DateField(required=False, allow_null=True)
+    # "status" luôn được TÍNH TỰ ĐỘNG từ ngày (xem Tournament.computed_status) — chỉ đọc, client
+    # gửi "status" lên (nếu có) sẽ bị bỏ qua, không còn cách ép trạng thái thủ công qua API.
+    status = serializers.SerializerMethodField()
 
     class Meta:
         model = Tournament
         fields = ["id", "name", "type", "date", "date_to", "status"]
+
+    def get_status(self, obj):
+        return obj.computed_status
 
     def validate(self, data):
         date = data.get("date", self.instance.date if self.instance else None)

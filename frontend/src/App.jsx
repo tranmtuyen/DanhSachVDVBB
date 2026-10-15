@@ -72,6 +72,18 @@ function tournamentDateRangeText(t) {
   return `${fmtDate(t.date)} – ${fmtDate(t.date_to)}`;
 }
 
+// Trạng thái giải đấu luôn do SERVER tính tự động từ Từ ngày/Đến ngày so với hôm nay
+// (xem Tournament.computed_status ở backend) — FE chỉ hiển thị, không tự suy luận lại ngày giờ
+// ở client để tránh lệch múi giờ/giờ hệ thống máy người dùng.
+const TOURNAMENT_STATUS_META = {
+  sap_dien_ra: { label: "Sắp diễn ra", color: "#B8860B" },
+  dang_dien_ra: { label: "Đang diễn ra", color: "#1E8E52" },
+  da_ket_thuc: { label: "Đã kết thúc", color: C.muted },
+};
+function tournamentStatusMeta(t) {
+  return TOURNAMENT_STATUS_META[t?.status] || TOURNAMENT_STATUS_META.dang_dien_ra;
+}
+
 /* Bỏ dấu tiếng Việt + chữ thường, dùng để tìm kiếm gần đúng không phân biệt dấu/hoa-thường */
 const MAX_PHOTO_SIZE = 1024 * 1024; // 1MB — khớp với giới hạn ở backend
 
@@ -625,7 +637,14 @@ export default function App() {
     await refreshAll();
   }
   async function closeTournament(tid) {
-    await apiPatchJSON(`/tournaments/${tid}/`, { status: "da_ket_thuc" });
+    // Trạng thái giải đấu giờ luôn TỰ TÍNH từ Từ ngày/Đến ngày (xem Tournament.computed_status ở
+    // backend) — "Đóng giải đấu sớm" vì vậy nghĩa là kéo "Đến ngày" (và "Từ ngày" nếu giải chưa
+    // tới ngày bắt đầu) về hôm nay, để giải lập tức được tính là "Đã kết thúc".
+    const today = todayStr();
+    const t = tournaments.find((x) => x.id === tid);
+    const patch = { date_to: today };
+    if (t && t.date > today) patch.date = today;
+    await apiPatchJSON(`/tournaments/${tid}/`, patch);
     await refreshAll();
   }
 
@@ -2785,6 +2804,7 @@ function TournamentResultsPanel({ tournament: t, data, canEnterResults, onAddRes
 function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }) {
   const [tab, setTab] = useState("groups");
   const isOpen = t.status !== "da_ket_thuc";
+  const statusMeta = tournamentStatusMeta(t);
   const tabs = [
     { id: "groups", label: "Bảng đấu" },
     { id: "knockout", label: "Vòng loại trực tiếp" },
@@ -2803,7 +2823,7 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
             <div className="flex items-center gap-2" style={{ marginTop: 4, flexWrap: "wrap" }}>
               <TypeTag type={t.type} />
               <span style={{ fontSize: 12.5, color: C.muted }}>{tournamentDateRangeText(t)}</span>
-              <span style={{ fontSize: 12.5, color: isOpen ? "#1E8E52" : C.muted, fontWeight: 600 }}>{isOpen ? "Đang diễn ra" : "Đã kết thúc"}</span>
+              <span style={{ fontSize: 12.5, color: statusMeta.color, fontWeight: 600 }}>{statusMeta.label}</span>
             </div>
           </div>
           <button type="button" onClick={onClose} aria-label="Đóng" style={{ ...btnGhost, padding: "6px 14px", flexShrink: 0 }}>✕ Đóng</button>
@@ -2861,6 +2881,7 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
     .filter(Boolean);
   const canManage = canEnterResults || canEnterMatches;
   const accentColor = t.type === "khong_chap" ? C.accent : "#1E8E52";
+  const statusMeta = tournamentStatusMeta(t);
 
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `4px solid ${accentColor}`, borderRadius: 10 }}>
@@ -2870,9 +2891,7 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
           <div className="flex items-center gap-2" style={{ marginTop: 4, flexWrap: "wrap" }}>
             <TypeTag type={t.type} />
             <span style={{ fontSize: 12.5, color: C.muted }}>{tournamentDateRangeText(t)}</span>
-            <span style={{ fontSize: 12.5, color: t.status === "da_ket_thuc" ? C.muted : "#1E8E52", fontWeight: 600 }}>
-              {t.status === "da_ket_thuc" ? "Đã kết thúc" : "Đang diễn ra"}
-            </span>
+            <span style={{ fontSize: 12.5, color: statusMeta.color, fontWeight: 600 }}>{statusMeta.label}</span>
           </div>
         </div>
         <span style={{ color: C.muted, fontSize: 13 }}>{expanded ? "Thu gọn ▲" : "Chi tiết ▼"}</span>
@@ -2888,7 +2907,15 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
           <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
             <button style={btnPrimary} onClick={() => setShowManage(true)}>{canManage ? "Quản lý giải đấu" : "Xem chi tiết giải"}</button>
             {canEnterResults && t.status !== "da_ket_thuc" && (
-              <button style={btnGhost} onClick={() => onCloseTournament(t.id)}>Đóng giải đấu</button>
+              <button
+                style={btnGhost}
+                onClick={() => {
+                  if (!window.confirm(`Kết thúc giải "${t.name}" ngay hôm nay?\n\nNgày kết thúc của giải sẽ được chỉnh về hôm nay, trạng thái sẽ tự chuyển sang "Đã kết thúc".`)) return;
+                  onCloseTournament(t.id);
+                }}
+              >
+                Kết thúc sớm
+              </button>
             )}
             {canDeleteTournament && (
               <button

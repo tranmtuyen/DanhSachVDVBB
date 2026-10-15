@@ -33,9 +33,16 @@ class PlayerAdmin(admin.ModelAdmin):
 
 @admin.register(Tournament)
 class TournamentAdmin(admin.ModelAdmin):
-    list_display = ("name", "type", "date", "status")
-    list_filter = ("type", "status")
+    # "status" (DB) không còn là nguồn sự thật — trạng thái hiển thị luôn tự tính từ ngày
+    # (xem Tournament.computed_status), nên cột list_display dùng computed_status_display thay vì
+    # "status" thô (vốn không còn được ghi khi đóng giải từ giao diện web).
+    list_display = ("name", "type", "date", "date_to", "computed_status_display")
+    list_filter = ("type",)
     search_fields = ("name",)
+
+    def computed_status_display(self, obj):
+        return dict(Tournament.STATUS_CHOICES).get(obj.computed_status, obj.computed_status)
+    computed_status_display.short_description = "Trạng thái"
 
 
 class MatchAdminForm(forms.ModelForm):

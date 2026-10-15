@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 
 def player_photo_path(instance, filename):
@@ -59,6 +60,7 @@ class Tournament(models.Model):
         (CO_CHAP, "Có chấp điểm"),
     ]
     STATUS_CHOICES = [
+        ("sap_dien_ra", "Sắp diễn ra"),
         ("dang_dien_ra", "Đang diễn ra"),
         ("da_ket_thuc", "Đã kết thúc"),
     ]
@@ -69,11 +71,28 @@ class Tournament(models.Model):
     # Giải đấu nhập trước khi có trường này (hoặc nhập không chỉ định): coi như diễn ra đúng 1 ngày —
     # "Đến ngày" lấy giống "Từ ngày" (xem migration 0012 backfill dữ liệu cũ + services.record_tournament).
     date_to = models.DateField("Đến ngày", null=True, blank=True)
-    status = models.CharField("Trạng thái", max_length=20, choices=STATUS_CHOICES, default="dang_dien_ra")
+    # Trường DB cũ, không còn là nguồn sự thật — trạng thái hiển thị luôn được TÍNH TỰ ĐỘNG từ
+    # "Từ ngày"/"Đến ngày" so với ngày hôm nay (xem computed_status). Giữ cột lại để không phải
+    # migrate xóa, nhưng serializer không cho ghi đè qua API nữa.
+    status = models.CharField("Trạng thái (cũ, không dùng)", max_length=20, choices=STATUS_CHOICES, default="dang_dien_ra")
 
     @property
     def effective_date_to(self):
         return self.date_to or self.date
+
+    @property
+    def computed_status(self):
+        """Trạng thái THỰC TẾ, luôn suy ra từ ngày — không phụ thuộc trường status đã lưu:
+        - Đến ngày < hôm nay           -> đã kết thúc
+        - Từ ngày <= hôm nay <= Đến ngày -> đang diễn ra
+        - hôm nay < Từ ngày            -> sắp diễn ra
+        """
+        today = timezone.localdate()
+        if self.effective_date_to < today:
+            return "da_ket_thuc"
+        if self.date > today:
+            return "sap_dien_ra"
+        return "dang_dien_ra"
 
     class Meta:
         verbose_name = "Giải đấu"
