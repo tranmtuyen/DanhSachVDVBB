@@ -977,7 +977,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="tt-sidebar-nav flex flex-col gap-1" style={{ padding: "8px 12px", flex: 1 }}>
+        <div className="tt-sidebar-nav flex flex-col gap-1" style={{ padding: "8px 12px" }}>
           {visibleTabs.map((t) => (
             <button
               key={t.id} onClick={() => { setTab(t.id); setMobileMenuOpen(false); }}
@@ -994,8 +994,8 @@ export default function App() {
           ))}
         </div>
 
-        <div style={{ padding: 14, borderTop: "1px solid #212E27", position: "relative" }}>
-          {!currentUser && (
+        {!currentUser && (
+          <div style={{ padding: "6px 12px 14px" }}>
             <button
               onClick={() => setShowLogin(true)}
               className="flex items-center justify-center gap-2"
@@ -1006,8 +1006,8 @@ export default function App() {
             >
               <LoginIcon /> <span className="tt-sidebar-label">Đăng Nhập</span>
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {showLogin && (
