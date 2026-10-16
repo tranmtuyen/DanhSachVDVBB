@@ -106,7 +106,11 @@ def record_match(*, tournament, mode="don", player_a, player_b, player_a2=None, 
     """Tạo 1 trận đấu (đơn hoặc đôi), tự tính điểm, cập nhật rating, ghi lịch sử điểm.
     status="scheduled": trận sắp diễn ra, chưa có tỷ số, không tính điểm — chỉ ghi nhận lịch."""
     loai = tournament.type if tournament else Match.GIAO_HUU
-    date = date or timezone.localdate()
+    # Ngày diễn ra: nếu không chỉ định rõ, trận trong giải lấy theo "Từ ngày" của giải đấu (ngày diễn ra
+    # giải) — KHÔNG lấy ngày hôm nay (đó là "ngày nhập", đã có sẵn ở Match.created_at, auto_now_add).
+    # Trận giao hữu (không thuộc giải nào) vẫn mặc định hôm nay như cũ.
+    if date is None:
+        date = tournament.date if tournament else timezone.localdate()
     is_doubles = mode == "doi"
 
     if is_doubles:
