@@ -64,12 +64,12 @@ function findHandicapSuggestion(rules, diff) {
 }
 
 /* ---------- Khối nhập điểm chấp dùng chung cho 3 form nhập trận (FriendlyMatchEntryForm/TournamentMatchForm/
-   SlotFillModal): khi giải "Có chấp điểm" và thể thức Đánh đơn, hiện check "Điểm chấp đề xuất" — tick
-   vào thì tự tính chênh lệch rating 2 bên, tra quy tắc để điền sẵn (bên yếu hơn được chấp), khóa không
-   cho tự sửa; bỏ check thì quay lại tự nhập như cũ. */
+   SlotFillModal): khi giải "Có chấp điểm" (hoặc Giao hữu) và thể thức Đánh đơn, hiện check "Điểm chấp
+   đề xuất" — tick vào thì tự tính chênh lệch rating 2 bên, tra quy tắc để điền sẵn (bên yếu hơn được
+   chấp), khóa không cho tự sửa; bỏ check thì quay lại tự nhập như cũ. */
 function HandicapFields({ tournamentType, mode, pA, pB, handicapA, handicapB, setHandicapA, setHandicapB, rules }) {
   const [useSuggestion, setUseSuggestion] = useState(false);
-  const canSuggest = tournamentType === "co_chap" && mode !== "doi";
+  const canSuggest = (tournamentType === "co_chap" || tournamentType === "giao_huu") && mode !== "doi";
 
   useEffect(() => {
     if (!canSuggest && useSuggestion) setUseSuggestion(false);
