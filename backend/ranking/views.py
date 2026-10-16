@@ -18,13 +18,13 @@ from rest_framework.response import Response
 from . import services
 from .models import (
     HandicapRule, KnockoutSlot, LoginAttempt, Match, MatchMedia, Player, PointHistory, RankingConfig, Tournament,
-    TournamentGroup, TournamentResult,
+    TournamentGroup, TournamentResult, TournamentWaitlist,
 )
 from .serializers import (
     GroupSerializer, HandicapRuleSerializer, KnockoutSlotSerializer, MatchCreateSerializer, MatchMediaSerializer,
     MatchSerializer, MatchUpdateSerializer, PlayerPhotoSerializer, PlayerSerializer, PointHistorySerializer,
     RankingConfigSerializer, ResultCreateSerializer, ResultSerializer, ResultUpdateSerializer, TournamentSerializer,
-    UserSerializer,
+    TournamentWaitlistSerializer, UserSerializer,
 )
 
 RECAPTCHA_THRESHOLD = 5  # Số lần sai liên tiếp trước khi bắt xác minh reCAPTCHA
@@ -563,6 +563,33 @@ class PointHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PointHistory.objects.all().order_by("-created_at")
     serializer_class = PointHistorySerializer
     permission_classes = [permissions.AllowAny]
+
+
+class IsAdminOrManagerStrict(permissions.BasePermission):
+    """Không cho xem công khai như IsAdminOrManager (vốn chỉ chặn ghi) — Danh sách chờ chỉ
+    Admin/Quản lý giải mới được xem, kể cả GET."""
+
+    def has_permission(self, request, view):
+        return services.get_role(request.user) in ("admin", "manager")
+
+
+class TournamentWaitlistViewSet(viewsets.ModelViewSet):
+    """Danh sách chờ đăng ký thi đấu (tab trong màn Giải đấu) — chỉ Admin/Quản lý giải xem/quản lý
+    (giai đoạn sau sẽ bổ sung endpoint riêng cho VĐV tự đăng ký)."""
+    queryset = TournamentWaitlist.objects.select_related("player", "tournament").all()
+    serializer_class = TournamentWaitlistSerializer
+    permission_classes = [IsAdminOrManagerStrict]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        tournament_id = self.request.query_params.get("tournament")
+        if tournament_id:
+            qs = qs.filter(tournament_id=tournament_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(source=TournamentWaitlist.ADMIN)
 
 
 class HandicapRuleViewSet(viewsets.ModelViewSet):

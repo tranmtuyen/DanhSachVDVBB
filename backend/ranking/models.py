@@ -88,6 +88,19 @@ class Tournament(models.Model):
     # migrate xóa, nhưng serializer không cho ghi đè qua API nữa.
     status = models.CharField("Trạng thái (cũ, không dùng)", max_length=20, choices=STATUS_CHOICES, default="dang_dien_ra")
 
+    MO_DANG_KY = "mo_dang_ky"
+    DONG_DANG_KY = "dong_dang_ky"
+    REGISTRATION_STATUS_CHOICES = [
+        (MO_DANG_KY, "Mở đăng ký"),
+        (DONG_DANG_KY, "Đóng đăng ký"),
+    ]
+    # Bật/tắt thủ công bởi Admin/Quản lý giải — ĐỘC LẬP với trạng thái Sắp/Đang/Đã kết thúc (tính tự
+    # động từ ngày ở trên). Khi "Mở đăng ký", VĐV đã liên kết tài khoản được tự đăng ký vào Danh sách
+    # chờ (TournamentWaitlist) qua menu "Đăng ký thi đấu". Mặc định Mở đăng ký cho giải mới tạo.
+    registration_status = models.CharField(
+        "Đăng ký thi đấu", max_length=20, choices=REGISTRATION_STATUS_CHOICES, default=MO_DANG_KY
+    )
+
     @property
     def effective_date_to(self):
         return self.date_to or self.date
@@ -129,6 +142,39 @@ class TournamentGroup(models.Model):
 
     def __str__(self):
         return f"{self.tournament} — Bảng {self.name}"
+
+
+class TournamentWaitlist(models.Model):
+    """Danh sách chờ đăng ký thi đấu của 1 giải đấu — ĐỘC LẬP với Bảng đấu/Vòng loại trực tiếp: đây
+    chỉ là bước đăng ký/duyệt, Admin/Quản lý giải vẫn tự tay xếp VĐV đã "Đã xác nhận" vào Bảng đấu/
+    Vòng loại trực tiếp như quy trình hiện có — xác nhận ở đây KHÔNG tự động thêm vào bảng nào."""
+    ADMIN = "admin"
+    SELF = "self"
+    SOURCE_CHOICES = [
+        (ADMIN, "Admin/Quản lý chọn"),
+        (SELF, "VĐV tự đăng ký"),
+    ]
+    CHO = "cho"
+    XAC_NHAN = "xac_nhan"
+    STATUS_CHOICES = [
+        (CHO, "Chờ"),
+        (XAC_NHAN, "Đã xác nhận"),
+    ]
+
+    tournament = models.ForeignKey(Tournament, verbose_name="Giải đấu", on_delete=models.CASCADE, related_name="waitlist_entries")
+    player = models.ForeignKey(Player, verbose_name="VĐV", on_delete=models.CASCADE, related_name="waitlist_entries")
+    source = models.CharField("Hình thức", max_length=10, choices=SOURCE_CHOICES, default=ADMIN)
+    status = models.CharField("Trạng thái", max_length=10, choices=STATUS_CHOICES, default=CHO)
+    created_at = models.DateTimeField("Ngày đăng ký", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Danh sách chờ"
+        verbose_name_plural = "Danh sách chờ"
+        ordering = ["created_at"]
+        unique_together = ("tournament", "player")
+
+    def __str__(self):
+        return f"{self.tournament} — {self.player} ({self.get_status_display()})"
 
 
 class Match(models.Model):

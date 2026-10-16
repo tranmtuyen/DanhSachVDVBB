@@ -7,7 +7,10 @@ from django.db import transaction
 from rest_framework import serializers
 
 from . import services
-from .models import HandicapRule, KnockoutSlot, Match, MatchMedia, Player, PointHistory, RankingConfig, Tournament, TournamentGroup, TournamentResult
+from .models import (
+    HandicapRule, KnockoutSlot, Match, MatchMedia, Player, PointHistory, RankingConfig, Tournament,
+    TournamentGroup, TournamentResult, TournamentWaitlist,
+)
 
 
 from rest_framework.fields import empty as DRF_EMPTY
@@ -135,7 +138,7 @@ class TournamentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Tournament
-        fields = ["id", "name", "type", "date", "date_to", "status"]
+        fields = ["id", "name", "type", "date", "date_to", "status", "registration_status"]
 
     def get_status(self, obj):
         return obj.computed_status
@@ -334,6 +337,36 @@ class HandicapRuleSerializer(serializers.ModelSerializer):
             )
         except ValueError as exc:
             raise serializers.ValidationError(str(exc))
+        return attrs
+
+
+class TournamentWaitlistSerializer(serializers.ModelSerializer):
+    """1 dòng trong Danh sách chờ đăng ký thi đấu. "source" (hình thức) do server set (ở view) khi
+    tạo — client không tự chọn được: Admin/Quản lý tạo -> "admin"; VĐV tự đăng ký (giai đoạn sau)
+    -> "self". Trùng (giải, VĐV) sẽ báo lỗi rõ ràng thay vì lỗi "unique together" chung chung."""
+    player_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TournamentWaitlist
+        fields = ["id", "tournament", "player", "player_name", "source", "status", "created_at"]
+        read_only_fields = ["source", "created_at"]
+
+    def get_unique_together_validators(self):
+        # Tự validate trùng (giải, VĐV) trong validate() bên dưới để báo lỗi dễ hiểu hơn — bỏ
+        # UniqueTogetherValidator mặc định của DRF (nó chạy trước và báo lỗi chung chung hơn).
+        return []
+
+    def get_player_name(self, obj):
+        return obj.player.name
+
+    def validate(self, attrs):
+        tournament = attrs.get("tournament", getattr(self.instance, "tournament", None))
+        player = attrs.get("player", getattr(self.instance, "player", None))
+        qs = TournamentWaitlist.objects.filter(tournament=tournament, player=player)
+        if self.instance:
+            qs = qs.exclude(id=self.instance.id)
+        if qs.exists():
+            raise serializers.ValidationError("VĐV này đã có trong danh sách chờ của giải đấu này rồi.")
         return attrs
 
 

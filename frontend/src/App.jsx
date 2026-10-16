@@ -725,6 +725,11 @@ export default function App() {
     await refreshAll();
   }
 
+  async function setTournamentRegistration(tid, registrationStatus) {
+    await apiPatchJSON(`/tournaments/${tid}/`, { registration_status: registrationStatus });
+    await refreshAll();
+  }
+
   async function deleteTournament(tid) {
     await apiDelete(`/tournaments/${tid}/`);
     await refreshAll();
@@ -841,6 +846,21 @@ export default function App() {
   async function deleteHandicapRule(ruleId) {
     await apiDelete(`/handicap-rules/${ruleId}/`);
     await refreshAll();
+  }
+
+  // Danh sách chờ đăng ký thi đấu — KHÔNG nằm trong refreshAll()/data chung: chỉ Admin/Quản lý giải
+  // mới xem được (API trả 403 cho vai trò khác), nên tab "Danh sách chờ" tự tải riêng theo từng giải.
+  async function fetchWaitlist(tournamentId) {
+    return apiGet(`/tournament-waitlist/?tournament=${tournamentId}`);
+  }
+  async function addWaitlistEntry(tournamentId, playerId) {
+    return apiPostJSON("/tournament-waitlist/", { tournament: tournamentId, player: playerId });
+  }
+  async function updateWaitlistEntry(entryId, patch) {
+    return apiPatchJSON(`/tournament-waitlist/${entryId}/`, patch);
+  }
+  async function deleteWaitlistEntry(entryId) {
+    return apiDelete(`/tournament-waitlist/${entryId}/`);
   }
 
   async function changeMyPhoto(photoFile) {
@@ -1072,6 +1092,9 @@ export default function App() {
               onAddGroup={addGroup} onUpdateGroup={updateGroup} onDeleteGroup={deleteGroup}
               onGenerateBracket={generateBracket} onDeleteBracket={deleteBracket} onRenameKnockoutRound={renameKnockoutRound}
               onSetSlotBye={setSlotBye} onSetSlotMatch={setSlotMatch} onClearSlot={clearSlot}
+              onSetTournamentRegistration={setTournamentRegistration}
+              onFetchWaitlist={fetchWaitlist} onAddWaitlistEntry={addWaitlistEntry}
+              onUpdateWaitlistEntry={updateWaitlistEntry} onDeleteWaitlistEntry={deleteWaitlistEntry}
             />
           )}
 
@@ -2329,7 +2352,14 @@ function MatchMediaModal({ matchId, canAdd, canDelete, onClose, onCountChange })
 }
 
 /* ---------- Tournaments ---------- */
-function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onAddTournament, onEditTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch, onAddGroup, onUpdateGroup, onDeleteGroup, onGenerateBracket, onDeleteBracket, onRenameKnockoutRound, onSetSlotBye, onSetSlotMatch, onClearSlot }) {
+function TournamentsTab({
+  data, canCreate, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament,
+  onAddTournament, onEditTournament, onDeleteTournament, onAddResult,
+  onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch,
+  onAddGroup, onUpdateGroup, onDeleteGroup, onGenerateBracket, onDeleteBracket, onRenameKnockoutRound,
+  onSetSlotBye, onSetSlotMatch, onClearSlot,
+  onSetTournamentRegistration, onFetchWaitlist, onAddWaitlistEntry, onUpdateWaitlistEntry, onDeleteWaitlistEntry,
+}) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("khong_chap");
@@ -2426,6 +2456,9 @@ function TournamentsTab({ data, canCreate, canEnterResults, canEnterMatches, can
               onAddGroup={onAddGroup} onUpdateGroup={onUpdateGroup} onDeleteGroup={onDeleteGroup}
               onGenerateBracket={onGenerateBracket} onDeleteBracket={onDeleteBracket} onRenameKnockoutRound={onRenameKnockoutRound}
               onSetSlotBye={onSetSlotBye} onSetSlotMatch={onSetSlotMatch} onClearSlot={onClearSlot}
+              onSetTournamentRegistration={onSetTournamentRegistration}
+              onFetchWaitlist={onFetchWaitlist} onAddWaitlistEntry={onAddWaitlistEntry}
+              onUpdateWaitlistEntry={onUpdateWaitlistEntry} onDeleteWaitlistEntry={onDeleteWaitlistEntry}
             />
           ))}
         </div>
@@ -3554,6 +3587,166 @@ function TournamentResultsPanel({ tournament: t, data, canEnterResults, onAddRes
   );
 }
 
+/* ---------- Tab "Danh sách chờ" (đăng ký thi đấu) — chỉ Admin/Quản lý giải. Độc lập hoàn toàn với
+   Bảng đấu/Vòng loại trực tiếp: đây chỉ là bước đăng ký/duyệt, xác nhận ở đây KHÔNG tự thêm vào bảng
+   nào — Admin vẫn tự tay xếp VĐV đã duyệt vào Bảng đấu/Vòng loại như quy trình hiện có. ---------- */
+function TournamentWaitlistPanel({ tournament: t, players, onFetch, onAdd, onEdit, onDelete }) {
+  const [entries, setEntries] = useState(null);
+  const [loadErr, setLoadErr] = useState("");
+  const [addPlayerId, setAddPlayerId] = useState("");
+  const [addErr, setAddErr] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editPlayerId, setEditPlayerId] = useState("");
+  const [editStatus, setEditStatus] = useState("cho");
+  const [editErr, setEditErr] = useState("");
+
+  async function load() {
+    try {
+      const list = await onFetch(t.id);
+      setEntries(list);
+      setLoadErr("");
+    } catch (e) {
+      setLoadErr(e.message || "Không tải được danh sách chờ.");
+    }
+  }
+  useEffect(() => { load(); }, [t.id]);
+
+  async function addEntry(e) {
+    e.preventDefault();
+    setAddErr("");
+    if (!addPlayerId) return;
+    try {
+      await onAdd(t.id, Number(addPlayerId));
+      setAddPlayerId("");
+      await load();
+    } catch (err) {
+      setAddErr(err.message || "Có lỗi khi thêm vào danh sách chờ.");
+    }
+  }
+
+  function startEdit(entry) {
+    setEditingId(entry.id);
+    setEditPlayerId(String(entry.player));
+    setEditStatus(entry.status);
+    setEditErr("");
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setEditErr("");
+  }
+  async function saveEdit(entryId) {
+    setEditErr("");
+    try {
+      await onEdit(entryId, { player: Number(editPlayerId), status: editStatus });
+      setEditingId(null);
+      await load();
+    } catch (err) {
+      setEditErr(err.message || "Có lỗi khi lưu.");
+    }
+  }
+  async function removeEntry(entry) {
+    if (!window.confirm(`Xóa "${entry.player_name}" khỏi danh sách chờ?`)) return;
+    try {
+      await onDelete(entry.id);
+      await load();
+    } catch (err) {
+      alert(err.message || "Có lỗi khi xóa.");
+    }
+  }
+
+  const existingPlayerIds = (entries || []).map((e) => e.player);
+
+  if (loadErr) return <EmptyState text={loadErr} />;
+  if (entries === null) return null;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+        Danh sách đăng ký thi đấu của giải (độc lập với Bảng đấu/Vòng loại trực tiếp) — chuyển trạng thái
+        "Đã xác nhận" chỉ để duyệt đăng ký, bạn vẫn tự xếp VĐV vào Bảng đấu/Vòng loại như bình thường.
+      </div>
+
+      <form onSubmit={addEntry} className="flex items-end gap-3" style={{ flexWrap: "wrap" }}>
+        <Field label="Thêm VĐV vào danh sách chờ">
+          <div style={{ minWidth: 240 }}>
+            <PlayerCombobox players={players} value={addPlayerId} onChange={setAddPlayerId} excludeIds={existingPlayerIds} />
+          </div>
+        </Field>
+        <button type="submit" style={btnPrimary} disabled={!addPlayerId}>+ Thêm</button>
+      </form>
+      {addErr && <div style={{ color: C.bad, fontSize: 13 }}>{addErr}</div>}
+
+      {entries.length === 0 ? (
+        <EmptyState text="Chưa có ai đăng ký/được thêm vào danh sách chờ." />
+      ) : (
+        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "0 16px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>Ngày đăng ký</th>
+                <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>VĐV</th>
+                <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>Hình thức</th>
+                <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>Trạng thái</th>
+                <th style={{ padding: "8px" }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => {
+                const isEditing = editingId === entry.id;
+                return (
+                  <tr key={entry.id} style={{ borderTop: `1px solid ${C.line}` }}>
+                    <td className="tabular" style={{ padding: "8px", fontSize: 13, whiteSpace: "nowrap" }}>
+                      {fmtDate((entry.created_at || "").slice(0, 10))}
+                    </td>
+                    <td style={{ padding: "8px", fontSize: 13.5, minWidth: 180 }}>
+                      {isEditing ? (
+                        <PlayerCombobox players={players} value={editPlayerId} onChange={setEditPlayerId} excludeIds={existingPlayerIds.filter((id) => id !== entry.player)} />
+                      ) : entry.player_name}
+                    </td>
+                    <td style={{ padding: "8px", fontSize: 13 }}>
+                      {entry.source === "self" ? "VĐV tự đăng ký" : "Admin/Quản lý chọn"}
+                    </td>
+                    <td style={{ padding: "8px", fontSize: 13 }}>
+                      {isEditing ? (
+                        <select style={{ ...inputStyle, maxWidth: 160 }} value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
+                          <option value="cho">Chờ</option>
+                          <option value="xac_nhan">Đã xác nhận</option>
+                        </select>
+                      ) : (
+                        <span style={{
+                          fontSize: 11.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999,
+                          background: entry.status === "xac_nhan" ? "#1E8E5222" : "#F2A93B22",
+                          color: entry.status === "xac_nhan" ? "#1E8E52" : "#B9790A",
+                        }}>
+                          {entry.status === "xac_nhan" ? "Đã xác nhận" : "Chờ"}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {isEditing ? (
+                        <>
+                          <button type="button" style={{ ...btnPrimary, padding: "4px 10px", fontSize: 12.5 }} onClick={() => saveEdit(entry.id)}>Lưu</button>{" "}
+                          <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5 }} onClick={cancelEdit}>Hủy</button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5 }} onClick={() => startEdit(entry)}>Sửa</button>{" "}
+                          <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5, color: C.bad }} onClick={() => removeEntry(entry)}>Xóa</button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {editErr && <div style={{ color: C.bad, fontSize: 13, padding: "8px" }}>{editErr}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- Popup "Quản lý giải đấu" ---------- */
 function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }) {
   const [tab, setTab] = useState("groups");
@@ -3563,6 +3756,7 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
     { id: "groups", label: "Bảng đấu" },
     { id: "knockout", label: "Vòng loại trực tiếp" },
     { id: "results", label: "Thành tích" },
+    ...(perms.canEnterResults ? [{ id: "waitlist", label: "Danh sách chờ" }] : []),
   ];
 
   return (
@@ -3621,13 +3815,26 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
             onAddResult={handlers.onAddResult} onEditResult={handlers.onEditResult} onDeleteResult={handlers.onDeleteResult}
           />
         )}
+        {tab === "waitlist" && perms.canEnterResults && (
+          <TournamentWaitlistPanel
+            tournament={t} players={data.players}
+            onFetch={handlers.onFetchWaitlist} onAdd={handlers.onAddWaitlistEntry}
+            onEdit={handlers.onUpdateWaitlistEntry} onDelete={handlers.onDeleteWaitlistEntry}
+          />
+        )}
       </div>
     </div>
   );
 }
 
 /* ---------- Thẻ giải đấu (gọn): thông tin + nút mở popup ---------- */
-function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament, onEditTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch, onAddGroup, onUpdateGroup, onDeleteGroup, onGenerateBracket, onDeleteBracket, onRenameKnockoutRound, onSetSlotBye, onSetSlotMatch, onClearSlot }) {
+function TournamentCard({
+  tournament: t, data, expanded, onToggle, canEnterResults, canEnterMatches, canManageMatches, canDeleteTournament,
+  onEditTournament, onDeleteTournament, onAddResult, onEditResult, onDeleteResult, onAddMatch, onEditMatch, onDeleteMatch,
+  onAddGroup, onUpdateGroup, onDeleteGroup, onGenerateBracket, onDeleteBracket, onRenameKnockoutRound,
+  onSetSlotBye, onSetSlotMatch, onClearSlot,
+  onSetTournamentRegistration, onFetchWaitlist, onAddWaitlistEntry, onUpdateWaitlistEntry, onDeleteWaitlistEntry,
+}) {
   const [showManage, setShowManage] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const matches = data.matches.filter((m) => m.tournament === t.id);
@@ -3650,6 +3857,9 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
             <TypeTag type={t.type} />
             <span style={{ fontSize: 12.5, color: C.muted }}>{tournamentDateRangeText(t)}</span>
             <span style={{ fontSize: 12.5, color: statusMeta.color, fontWeight: 600 }}>{statusMeta.label}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: t.registration_status === "mo_dang_ky" ? "#1E8E5222" : "#6B728022", color: t.registration_status === "mo_dang_ky" ? "#1E8E52" : "#6B7280" }}>
+              {t.registration_status === "mo_dang_ky" ? "Mở đăng ký" : "Đóng đăng ký"}
+            </span>
           </div>
         </div>
         <span style={{ color: C.muted, fontSize: 13 }}>{expanded ? "Thu gọn ▲" : "Chi tiết ▼"}</span>
@@ -3664,6 +3874,14 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
 
           <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
             <button style={btnPrimary} onClick={() => setShowManage(true)}>{canManage ? "Quản lý giải đấu" : "Xem chi tiết giải"}</button>
+            {canEnterResults && (
+              <button
+                style={btnGhost}
+                onClick={() => onSetTournamentRegistration(t.id, t.registration_status === "mo_dang_ky" ? "dong_dang_ky" : "mo_dang_ky")}
+              >
+                {t.registration_status === "mo_dang_ky" ? "Đóng đăng ký" : "Mở đăng ký"}
+              </button>
+            )}
             {canDeleteTournament && (
               <button style={btnGhost} onClick={() => setShowEdit(true)}>Chỉnh sửa</button>
             )}
@@ -3691,6 +3909,7 @@ function TournamentCard({ tournament: t, data, expanded, onToggle, canEnterResul
           handlers={{
             onAddGroup, onUpdateGroup, onDeleteGroup, onAddMatch, onEditMatch, onDeleteMatch, onAddResult, onEditResult, onDeleteResult,
             onGenerateBracket, onDeleteBracket, onRenameKnockoutRound, onSetSlotBye, onSetSlotMatch, onClearSlot,
+            onFetchWaitlist, onAddWaitlistEntry, onUpdateWaitlistEntry, onDeleteWaitlistEntry,
           }}
         />
       )}
