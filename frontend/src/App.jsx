@@ -149,6 +149,15 @@ function tournamentStatusMeta(t) {
   return TOURNAMENT_STATUS_META[t?.status] || TOURNAMENT_STATUS_META.dang_dien_ra;
 }
 
+// Nhãn hiển thị ở giữa MatchTeamsGrid cho các trận CHƯA có tỷ số (status !== "completed") — "scheduled"
+// giữ nguyên như cũ, 3 trạng thái còn lại chỉ phát sinh từ luồng VĐV tự đăng ký Giao hữu (xem Phase 3).
+const MATCH_PENDING_LABEL = {
+  scheduled: "(sắp diễn ra)",
+  cho_xac_nhan: "(chờ xác nhận)",
+  tu_choi: "(đã từ chối)",
+  het_han: "(đã hết hạn)",
+};
+
 /* Bỏ dấu tiếng Việt + chữ thường, dùng để tìm kiếm gần đúng không phân biệt dấu/hoa-thường */
 const MAX_PHOTO_SIZE = 1024 * 1024; // 1MB — khớp với giới hạn ở backend
 
@@ -617,8 +626,33 @@ export default function App() {
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Trận Giao hữu đang "Chờ xác nhận" mà currentUser (qua VĐV liên kết) chính là đối thủ cần xác nhận
+  // (player_b) — và chưa quá ngày diễn ra (quá hạn thì BE đã tự chuyển "Hết hạn", không còn ở đây nữa).
+  const [dismissedPendingIds, setDismissedPendingIds] = useState([]); // id trận đã bấm Hủy ở popup thông báo (phiên này)
+  const [noticeMatchId, setNoticeMatchId] = useState(null); // id trận đang hiện popup thông báo "có trận chờ xác nhận"
+  const [confirmMatchId, setConfirmMatchId] = useState(null); // id trận đang mở form Xác nhận/Từ chối
 
   const role = currentUser?.role || "public";
+
+  const pendingConfirmForMe = useMemo(() => {
+    if (!currentUser?.player_id) return [];
+    const today = todayStr();
+    return matches.filter((m) => m.status === "cho_xac_nhan" && m.player_b === currentUser.player_id && m.date >= today);
+  }, [matches, currentUser]);
+
+  useEffect(() => {
+    if (!loaded || noticeMatchId || confirmMatchId) return;
+    const toNotify = pendingConfirmForMe.find((m) => !dismissedPendingIds.includes(m.id));
+    if (toNotify) setNoticeMatchId(toNotify.id);
+  }, [pendingConfirmForMe, dismissedPendingIds, loaded, noticeMatchId, confirmMatchId]);
+  // Dọn lại nếu trận đang mở popup bỗng biến mất khỏi danh sách (VD: bị xác nhận/từ chối/xóa ở nơi
+  // khác, hoặc vừa quá hạn và bị BE tự chuyển "Hết hạn") — tránh giữ popup trỏ vào dữ liệu đã cũ.
+  useEffect(() => {
+    if (noticeMatchId && !matches.some((m) => m.id === noticeMatchId)) setNoticeMatchId(null);
+  }, [matches, noticeMatchId]);
+  useEffect(() => {
+    if (confirmMatchId && !matches.some((m) => m.id === confirmMatchId)) setConfirmMatchId(null);
+  }, [matches, confirmMatchId]);
 
   useEffect(() => {
     setAuthToken(token);
@@ -864,6 +898,24 @@ export default function App() {
     return apiDelete(`/tournament-waitlist/${entryId}/`);
   }
 
+  // Đăng ký Giao hữu (VĐV tự đăng ký) — tạo trận ở trạng thái "Chờ xác nhận"; xác nhận/từ chối chỉ
+  // dành cho đúng VĐV được mời (player_b). Cả 3 hàm đều refreshAll() để cập nhật danh sách Giao hữu.
+  async function selfRegisterFriendlyMatch(payload) {
+    const match = await apiPostJSON("/matches/self-register/", payload);
+    await refreshAll();
+    return match;
+  }
+  async function confirmFriendlyMatch(matchId) {
+    const match = await apiPostJSON(`/matches/${matchId}/confirm/`, {});
+    await refreshAll();
+    return match;
+  }
+  async function rejectFriendlyMatch(matchId) {
+    const match = await apiPostJSON(`/matches/${matchId}/reject/`, {});
+    await refreshAll();
+    return match;
+  }
+
   async function changeMyPhoto(photoFile) {
     const fd = new FormData();
     fd.append("photo", photoFile);
@@ -1073,12 +1125,39 @@ export default function App() {
         )}
 
         {showRegisterModal && currentUser && (
-          <TournamentSelfRegisterModal
-            currentUser={currentUser} tournaments={tournaments}
+          <SelfRegisterModal
+            currentUser={currentUser} tournaments={tournaments} players={players} handicapRules={handicapRules}
             onFetchWaitlist={fetchWaitlist} onAddWaitlistEntry={addWaitlistEntry}
+            onSelfRegisterMatch={selfRegisterFriendlyMatch}
             onClose={() => setShowRegisterModal(false)}
           />
         )}
+
+        {noticeMatchId && !confirmMatchId && (() => {
+          const m = matches.find((x) => x.id === noticeMatchId);
+          if (!m) return null;
+          const opponent = players.find((p) => p.id === m.player_a);
+          return (
+            <FriendlyPendingNoticeModal
+              opponentName={opponent?.name || "Một VĐV"}
+              onConfirmOpen={() => { setConfirmMatchId(noticeMatchId); setNoticeMatchId(null); }}
+              onDismiss={() => { setDismissedPendingIds((prev) => [...prev, noticeMatchId]); setNoticeMatchId(null); }}
+            />
+          );
+        })()}
+
+        {confirmMatchId && (() => {
+          const m = matches.find((x) => x.id === confirmMatchId);
+          if (!m) return null;
+          return (
+            <FriendlyConfirmModal
+              match={m} players={players}
+              onConfirm={async () => { await confirmFriendlyMatch(m.id); setConfirmMatchId(null); }}
+              onReject={async () => { await rejectFriendlyMatch(m.id); setConfirmMatchId(null); }}
+              onClose={() => setConfirmMatchId(null)}
+            />
+          );
+        })()}
         <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px 24px 64px" }}>
           {loadError && (
             <div style={{ background: "#FBEAE7", color: C.bad, border: `1px solid ${C.bad}33`, borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13.5 }}>
@@ -1115,6 +1194,7 @@ export default function App() {
               data={data} canManage={canManageMatches} canAddMedia={canEnterMatches}
               canAddMatch={canEnterMatches} onAddMatch={addMatch}
               onEditMatch={editMatch} onDeleteMatch={deleteMatch}
+              currentUser={currentUser} onConfirmMatch={confirmFriendlyMatch} onRejectMatch={rejectFriendlyMatch}
             />
           )}
 
@@ -1966,10 +2046,12 @@ function PhotoLightbox({ url, alt, onClose }) {
 }
 
 /* ---------- Match row (dùng chung: có thể sửa/xóa) ---------- */
-function MatchRow({ match: m, data, canManage, canAddMedia, onEditMatch, onDeleteMatch, showDate, perspectivePlayerId, stageBadge }) {
+function MatchRow({ match: m, data, canManage, canAddMedia, onEditMatch, onDeleteMatch, showDate, perspectivePlayerId, stageBadge, currentUser, onConfirmMatch, onRejectMatch }) {
   const isDoubles = m.mode === "doi";
   const [editing, setEditing] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmErr, setConfirmErr] = useState("");
   const [mediaCountOverride, setMediaCountOverride] = useState(null);
   const mediaCount = mediaCountOverride ?? m.media_count ?? 0;
   const [playerAId, setPlayerAId] = useState(m.player_a);
@@ -1990,7 +2072,7 @@ function MatchRow({ match: m, data, canManage, canAddMedia, onEditMatch, onDelet
 
   // Hiển thị theo góc nhìn 1 VĐV cụ thể (dùng trong "Lịch sử điểm" của VĐV đó)
   let perspective = null;
-  if (perspectivePlayerId && m.status !== "scheduled") {
+  if (perspectivePlayerId && m.status === "completed") {
     const isASide = m.player_a === perspectivePlayerId || m.player_a2 === perspectivePlayerId;
     const selfWon = (isASide && m.winner_side === "A") || (!isASide && m.winner_side === "B");
     const scoreText = isASide ? `${m.sets_a}–${m.sets_b}` : `${m.sets_b}–${m.sets_a}`;
@@ -1999,6 +2081,21 @@ function MatchRow({ match: m, data, canManage, canAddMedia, onEditMatch, onDelet
       : "Giao hữu";
     const selfDelta = isASide ? m.delta_a : m.delta_b;
     perspective = { selfLabel: isASide ? labelA : labelB, oppLabel: isASide ? labelB : labelA, selfWon, scoreText, contextLabel, isASide, selfDelta };
+  }
+
+  // VĐV đang đăng nhập chính là đối thủ CẦN xác nhận (player_b) của trận "Chờ xác nhận" này, và
+  // chưa quá ngày diễn ra (đã quá hạn thì BE tự chuyển "het_han", không còn hiện nút nữa).
+  const canConfirmThis = !!currentUser?.player_id && m.status === "cho_xac_nhan" && m.player_b === currentUser.player_id && m.date >= todayStr();
+
+  async function doConfirm() {
+    setConfirmErr(""); setConfirmBusy(true);
+    try { await onConfirmMatch(m.id); } catch (e) { setConfirmErr(e.message || "Có lỗi, vui lòng thử lại."); }
+    setConfirmBusy(false);
+  }
+  async function doReject() {
+    setConfirmErr(""); setConfirmBusy(true);
+    try { await onRejectMatch(m.id); } catch (e) { setConfirmErr(e.message || "Có lỗi, vui lòng thử lại."); }
+    setConfirmBusy(false);
   }
 
   // Xác định bên trái/phải hiển thị: theo góc nhìn (self bên trái) nếu có, mặc định A bên trái — dùng chung cho đơn & đôi
@@ -2107,11 +2204,11 @@ function MatchRow({ match: m, data, canManage, canAddMedia, onEditMatch, onDelet
               {mediaCount > 0 ? `🖼 ${mediaCount}` : "+ Ảnh/Video"}
             </button>
           )}
-          {m.status === "scheduled" ? (
+          {m.status !== "completed" ? (
             <MatchTeamsGrid
               leftP1={leftPlayers[0]} leftP2={leftPlayers[1]} rightP1={rightPlayers[0]} rightP2={rightPlayers[1]}
               leftHandicap={leftHandicap} rightHandicap={rightHandicap}
-              middle="(sắp diễn ra)"
+              middle={MATCH_PENDING_LABEL[m.status] || "(chưa có kết quả)"}
             />
           ) : perspective ? (
             <>
@@ -2153,8 +2250,17 @@ function MatchRow({ match: m, data, canManage, canAddMedia, onEditMatch, onDelet
       </div>
       <div className="tt-match-right flex items-center gap-3">
         <span className="tabular" style={{ color: C.muted }}>
-          {perspective || m.status === "scheduled" ? "" : isDoubles ? "Không tính điểm" : <>{m.delta_a >= 0 ? "+" : ""}{m.delta_a} / {m.delta_b >= 0 ? "+" : ""}{m.delta_b}</>}
+          {perspective || m.status !== "completed" ? "" : isDoubles ? "Không tính điểm" : <>{m.delta_a >= 0 ? "+" : ""}{m.delta_a} / {m.delta_b >= 0 ? "+" : ""}{m.delta_b}</>}
         </span>
+        {canConfirmThis && (
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex gap-1">
+              <button type="button" style={{ ...btnPrimary, padding: "4px 10px", fontSize: 12 }} disabled={confirmBusy} onClick={doConfirm}>Xác nhận</button>
+              <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12, color: C.bad, borderColor: C.bad + "55" }} disabled={confirmBusy} onClick={doReject}>Từ chối</button>
+            </div>
+            {confirmErr && <div style={{ color: C.bad, fontSize: 11.5, maxWidth: 220, textAlign: "right" }}>{confirmErr}</div>}
+          </div>
+        )}
         {canManage && (
           <div className="flex flex-col items-end gap-1">
             <div className="flex gap-1">
@@ -3780,10 +3886,41 @@ function TournamentWaitlistModal({ tournament: t, players, canManage, onFetch, o
   );
 }
 
-/* ---------- Popup "Đăng ký thi đấu" (VĐV tự đăng ký Giải đấu) — mở từ menu góc user, chỉ cho
-   tài khoản đã liên kết VĐV. Chỉ liệt kê giải đang "Mở đăng ký" và chưa "Đã kết thúc"; VĐV chỉ đăng
-   ký được cho chính mình, đăng ký thành công vào thẳng Danh sách chờ với trạng thái "Chờ". ---------- */
-function TournamentSelfRegisterModal({ currentUser, tournaments, onFetchWaitlist, onAddWaitlistEntry, onClose }) {
+/* ---------- Popup "Đăng ký thi đấu" — mở từ menu góc user, chỉ cho tài khoản đã liên kết VĐV. 2 tab:
+   "Giải đấu" (đăng ký vào Danh sách chờ của giải đang Mở đăng ký) và "Giao hữu" (tự tạo 1 trận Giao
+   hữu ở trạng thái "Chờ xác nhận", chờ đối thủ chính xác nhận). ---------- */
+function SelfRegisterModal({ currentUser, tournaments, players, handicapRules, onFetchWaitlist, onAddWaitlistEntry, onSelfRegisterMatch, onClose }) {
+  const [tab, setTab] = useState("giai_dau");
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", zIndex: 80, overflowY: "auto", padding: "3vh 10px" }}>
+      <div style={{ background: C.bg, borderRadius: 16, maxWidth: 680, margin: "0 auto", padding: "16px 14px 22px" }} className="flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>Đăng ký thi đấu</div>
+            <div style={{ fontSize: 17, fontWeight: 800, fontFamily: FONT_DISPLAY }}>{tab === "giai_dau" ? "Đăng ký Giải đấu" : "Đăng ký Giao hữu"}</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Đóng" style={{ ...btnGhost, padding: "6px 14px", flexShrink: 0 }}>✕ Đóng</button>
+        </div>
+
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setTab("giai_dau")} style={tab === "giai_dau" ? btnPrimary : btnGhost}>Giải đấu</button>
+          <button type="button" onClick={() => setTab("giao_huu")} style={tab === "giao_huu" ? btnPrimary : btnGhost}>Giao hữu</button>
+        </div>
+
+        {tab === "giai_dau" ? (
+          <TournamentRegisterPane currentUser={currentUser} tournaments={tournaments} onFetchWaitlist={onFetchWaitlist} onAddWaitlistEntry={onAddWaitlistEntry} />
+        ) : (
+          <FriendlyRegisterPane currentUser={currentUser} players={players} handicapRules={handicapRules} onSelfRegisterMatch={onSelfRegisterMatch} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Tab "Giải đấu" của popup Đăng ký thi đấu — chỉ liệt kê giải đang "Mở đăng ký" và chưa
+   "Đã kết thúc"; VĐV chỉ đăng ký được cho chính mình, đăng ký thành công vào thẳng Danh sách chờ
+   với trạng thái "Chờ". ---------- */
+function TournamentRegisterPane({ currentUser, tournaments, onFetchWaitlist, onAddWaitlistEntry }) {
   const openTournaments = useMemo(
     () => tournaments.filter((t) => t.registration_status === "mo_dang_ky" && t.status !== "da_ket_thuc"),
     [tournaments]
@@ -3827,64 +3964,223 @@ function TournamentSelfRegisterModal({ currentUser, tournaments, onFetchWaitlist
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", zIndex: 80, overflowY: "auto", padding: "3vh 10px" }}>
-      <div style={{ background: C.bg, borderRadius: 16, maxWidth: 640, margin: "0 auto", padding: "16px 14px 22px" }} className="flex flex-col gap-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>Đăng ký thi đấu</div>
-            <div style={{ fontSize: 17, fontWeight: 800, fontFamily: FONT_DISPLAY }}>Đăng ký Giải đấu</div>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Đóng" style={{ ...btnGhost, padding: "6px 14px", flexShrink: 0 }}>✕ Đóng</button>
-        </div>
+    <div className="flex flex-col gap-3">
+      <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+        Đăng ký tham gia các giải đấu đang mở đăng ký — đăng ký thành công sẽ vào Danh sách chờ với trạng thái "Chờ", Admin/Quản lý giải sẽ duyệt và xếp bạn vào bảng đấu.
+      </div>
 
-        <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
-          Đăng ký tham gia các giải đấu đang mở đăng ký — đăng ký thành công sẽ vào Danh sách chờ với trạng thái "Chờ", Admin/Quản lý giải sẽ duyệt và xếp bạn vào bảng đấu.
-        </div>
+      {err && <div style={{ color: C.bad, fontSize: 13 }}>{err}</div>}
 
-        {err && <div style={{ color: C.bad, fontSize: 13 }}>{err}</div>}
-
-        {loadErr ? (
-          <EmptyState text={loadErr} />
-        ) : openTournaments.length === 0 ? (
-          <EmptyState text="Hiện không có giải đấu nào đang mở đăng ký." />
-        ) : (
-          <div className="flex flex-col gap-2.5">
-            {openTournaments.map((t) => {
-              const status = myStatus[t.id];
-              return (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between gap-3"
-                  style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px" }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
-                    <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{tournamentDateRangeText(t)}</div>
-                  </div>
-                  {loading ? (
-                    <div style={{ fontSize: 12.5, color: C.muted, flexShrink: 0 }}>Đang tải…</div>
-                  ) : status ? (
-                    <span style={{
-                      flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
-                      background: status === "xac_nhan" ? "#1E8E5222" : "#F2A93B22",
-                      color: status === "xac_nhan" ? "#1E8E52" : "#B9790A",
-                    }}>
-                      {status === "xac_nhan" ? "Đã xác nhận" : "Đã đăng ký · Chờ"}
-                    </span>
-                  ) : (
-                    <button
-                      type="button" style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13, flexShrink: 0 }}
-                      disabled={registeringId === t.id}
-                      onClick={() => register(t)}
-                    >
-                      {registeringId === t.id ? "Đang đăng ký…" : "Đăng ký"}
-                    </button>
-                  )}
+      {loadErr ? (
+        <EmptyState text={loadErr} />
+      ) : openTournaments.length === 0 ? (
+        <EmptyState text="Hiện không có giải đấu nào đang mở đăng ký." />
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {openTournaments.map((t) => {
+            const status = myStatus[t.id];
+            return (
+              <div
+                key={t.id}
+                className="flex items-center justify-between gap-3"
+                style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px" }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
+                  <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{tournamentDateRangeText(t)}</div>
                 </div>
-              );
-            })}
-          </div>
-        )}
+                {loading ? (
+                  <div style={{ fontSize: 12.5, color: C.muted, flexShrink: 0 }}>Đang tải…</div>
+                ) : status ? (
+                  <span style={{
+                    flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                    background: status === "xac_nhan" ? "#1E8E5222" : "#F2A93B22",
+                    color: status === "xac_nhan" ? "#1E8E52" : "#B9790A",
+                  }}>
+                    {status === "xac_nhan" ? "Đã xác nhận" : "Đã đăng ký · Chờ"}
+                  </span>
+                ) : (
+                  <button
+                    type="button" style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13, flexShrink: 0 }}
+                    disabled={registeringId === t.id}
+                    onClick={() => register(t)}
+                  >
+                    {registeringId === t.id ? "Đang đăng ký…" : "Đăng ký"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Tab "Giao hữu" của popup Đăng ký thi đấu — VĐV tự tạo 1 trận Giao hữu (Đơn/Đôi), chọn
+   đối thủ chính (người PHẢI xác nhận), chấp điểm (có check đề xuất giống form nhập trận), ngày diễn
+   ra không được là ngày quá khứ. Tạo xong trận ở trạng thái "Chờ xác nhận", hiện trong menu Giao hữu. */
+function FriendlyRegisterPane({ currentUser, players, handicapRules, onSelfRegisterMatch }) {
+  const me = players.find((p) => p.id === currentUser.player_id);
+  const [mode, setMode] = useState("don");
+  const [opponentId, setOpponentId] = useState("");
+  const [teammateId, setTeammateId] = useState("");
+  const [opponent2Id, setOpponent2Id] = useState("");
+  const [date, setDate] = useState(todayStr());
+  const [handicapA, setHandicapA] = useState("");
+  const [handicapB, setHandicapB] = useState("");
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const otherPlayers = useMemo(() => players.filter((p) => p.id !== currentUser.player_id), [players, currentUser]);
+  const pB = players.find((p) => p.id === Number(opponentId));
+
+  function resetForm() {
+    setOpponentId(""); setTeammateId(""); setOpponent2Id(""); setHandicapA(""); setHandicapB("");
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    setErr("");
+    if (!opponentId) { setErr("Hãy chọn đối thủ."); return; }
+    if (date < todayStr()) { setErr("Không thể chọn ngày trong quá khứ."); return; }
+    if (handicapA.trim() && !HANDICAP_FORMAT_RE.test(handicapA.trim())) { setErr("Điểm chấp VĐV A không đúng định dạng (VD: 2-0-2)."); return; }
+    if (handicapB.trim() && !HANDICAP_FORMAT_RE.test(handicapB.trim())) { setErr("Điểm chấp VĐV B không đúng định dạng (VD: 2-0-2)."); return; }
+    const payload = {
+      mode, opponent: Number(opponentId), date,
+      handicap_a: handicapA.trim(), handicap_b: handicapB.trim(),
+    };
+    if (mode === "doi") {
+      if (!teammateId || !opponent2Id) { setErr("Đánh đôi cần chọn đủ đồng đội của bạn và đối thủ thứ 2."); return; }
+      const ids = new Set([currentUser.player_id, Number(teammateId), Number(opponentId), Number(opponent2Id)]);
+      if (ids.size !== 4) { setErr("4 VĐV trong trận đôi phải khác nhau."); return; }
+      payload.teammate = Number(teammateId);
+      payload.opponent2 = Number(opponent2Id);
+    }
+    setBusy(true);
+    try {
+      await onSelfRegisterMatch(payload);
+      setMsg(`Đã đăng ký trận gặp ${pB?.name || "đối thủ"}, đang chờ xác nhận.`);
+      resetForm();
+      setTimeout(() => setMsg(""), 4000);
+    } catch (e2) {
+      setErr(e2.message || "Có lỗi khi đăng ký.");
+    }
+    setBusy(false);
+  }
+
+  if (!me) return <EmptyState text="Tài khoản của bạn chưa được gắn với VĐV nào." />;
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+        Đăng ký 1 trận Giao hữu — trận sẽ ở trạng thái "Chờ xác nhận" cho tới khi đối thủ chính xác nhận. Bạn luôn là VĐV A.
+      </div>
+
+      <Field label="Thể thức">
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setMode("don")} style={mode === "don" ? btnPrimary : btnGhost}>Đánh đơn</button>
+          <button type="button" onClick={() => setMode("doi")} style={mode === "doi" ? btnPrimary : btnGhost}>Đánh đôi</button>
+        </div>
+      </Field>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="flex flex-col gap-2">
+          <Field label={mode === "doi" ? "Đội của bạn — đồng đội" : "Bạn"}>
+            {mode === "doi" ? (
+              <PlayerCombobox players={otherPlayers.filter((p) => p.id !== Number(opponentId) && p.id !== Number(opponent2Id))} value={teammateId} onChange={setTeammateId} placeholder="— chọn đồng đội —" />
+            ) : (
+              <input style={{ ...inputStyle, background: C.bg }} value={me.name} disabled />
+            )}
+          </Field>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Field label="Đối thủ chính (cần xác nhận)">
+            <PlayerCombobox players={otherPlayers.filter((p) => p.id !== Number(teammateId) && p.id !== Number(opponent2Id))} value={opponentId} onChange={setOpponentId} placeholder="— chọn đối thủ —" />
+          </Field>
+          {mode === "doi" && (
+            <Field label="Đối thủ thứ 2 (không cần xác nhận)">
+              <PlayerCombobox players={otherPlayers.filter((p) => p.id !== Number(teammateId) && p.id !== Number(opponentId))} value={opponent2Id} onChange={setOpponent2Id} placeholder="— chọn đối thủ thứ 2 —" />
+            </Field>
+          )}
+        </div>
+      </div>
+
+      <HandicapFields
+        tournamentType="giao_huu" mode={mode} pA={me} pB={pB}
+        handicapA={handicapA} handicapB={handicapB} setHandicapA={setHandicapA} setHandicapB={setHandicapB}
+        rules={handicapRules}
+      />
+
+      <Field label="Ngày diễn ra">
+        <input type="date" style={inputStyle} min={todayStr()} value={date} onChange={(e) => setDate(e.target.value)} required />
+      </Field>
+
+      {err && <div style={{ color: C.bad, fontSize: 13 }}>{err}</div>}
+      {msg && <div style={{ color: "#1E8E52", fontSize: 13, fontWeight: 600 }}>{msg}</div>}
+
+      <button type="submit" style={btnPrimary} disabled={busy}>{busy ? "Đang đăng ký…" : "Đăng ký"}</button>
+    </form>
+  );
+}
+
+/* ---------- Popup thông báo "Bạn có trận đấu chờ xác nhận" — hiện khi currentUser (qua VĐV liên
+   kết) là đối thủ chính (player_b) của 1 trận Giao hữu người khác vừa đăng ký. Hủy = chỉ đóng popup,
+   không có gì xảy ra (sẽ không hiện lại cho ĐÚNG trận này trong phiên hiện tại). ---------- */
+function FriendlyPendingNoticeModal({ opponentName, onConfirmOpen, onDismiss }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: C.surface, borderRadius: 16, maxWidth: 380, width: "100%", padding: 22 }} className="flex flex-col gap-3">
+        <div style={{ fontSize: 16, fontWeight: 800, fontFamily: FONT_DISPLAY }}>Bạn có trận đấu chờ xác nhận</div>
+        <div style={{ fontSize: 13.5, color: C.muted, lineHeight: 1.6 }}>
+          <strong style={{ color: C.ink }}>{opponentName}</strong> vừa mời bạn 1 trận Giao hữu — hãy xác nhận hoặc từ chối.
+        </div>
+        <div className="flex gap-2" style={{ marginTop: 4 }}>
+          <button type="button" style={btnPrimary} onClick={onConfirmOpen}>Xác nhận</button>
+          <button type="button" style={btnGhost} onClick={onDismiss}>Hủy</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Popup "Xác nhận trận Giao hữu" — mở sau khi bấm "Xác nhận" ở popup thông báo. Chỉ VĐV
+   được mời (player_b) mới thấy/bấm được 2 nút này (phía BE cũng tự kiểm tra lại). ---------- */
+function FriendlyConfirmModal({ match: m, players, onConfirm, onReject, onClose }) {
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const isDoubles = m.mode === "doi";
+  const pA = players.find((p) => p.id === m.player_a);
+  const pA2 = isDoubles ? players.find((p) => p.id === m.player_a2) : null;
+  const pB = players.find((p) => p.id === m.player_b);
+  const pB2 = isDoubles ? players.find((p) => p.id === m.player_b2) : null;
+  const labelA = isDoubles ? `${pA?.name} & ${pA2?.name}` : pA?.name;
+  const labelB = isDoubles ? `${pB?.name} & ${pB2?.name}` : pB?.name;
+
+  async function act(fn) {
+    setErr(""); setBusy(true);
+    try { await fn(); onClose(); }
+    catch (e) { setErr(e.message || "Có lỗi, vui lòng thử lại."); setBusy(false); }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: C.surface, borderRadius: 16, maxWidth: 420, width: "100%", padding: 22 }} className="flex flex-col gap-3">
+        <div style={{ fontSize: 16, fontWeight: 800, fontFamily: FONT_DISPLAY }}>Xác nhận trận Giao hữu</div>
+        <div style={{ background: C.bg, borderRadius: 10, padding: "12px 14px" }} className="flex flex-col gap-1.5">
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{labelA} <span style={{ color: C.muted, fontWeight: 500 }}>vs</span> {labelB}</div>
+          <div style={{ fontSize: 12.5, color: C.muted }}>{isDoubles ? "Đánh đôi" : "Đánh đơn"} · {fmtDate(m.date)}</div>
+          {(m.handicap_a || m.handicap_b) && (
+            <div style={{ fontSize: 12.5, color: C.muted }}>Điểm chấp: {m.handicap_a ? `${labelA} +${m.handicap_a}` : `${labelB} +${m.handicap_b}`}</div>
+          )}
+        </div>
+        {err && <div style={{ color: C.bad, fontSize: 13 }}>{err}</div>}
+        <div className="flex gap-2" style={{ marginTop: 4 }}>
+          <button type="button" style={btnPrimary} disabled={busy} onClick={() => act(onConfirm)}>Xác nhận</button>
+          <button type="button" style={{ ...btnGhost, color: C.bad, borderColor: C.bad + "55" }} disabled={busy} onClick={() => act(onReject)}>Từ chối</button>
+          <button type="button" style={btnGhost} disabled={busy} onClick={onClose}>Đóng</button>
+        </div>
       </div>
     </div>
   );
@@ -4326,7 +4622,7 @@ function FriendlyMatchEntryForm({ players, handicapRules, onAddMatch }) {
 }
 
 /* ---------- Friendly matches log ---------- */
-function FriendlyMatchesTab({ data, canManage, canAddMedia, canAddMatch, onAddMatch, onEditMatch, onDeleteMatch }) {
+function FriendlyMatchesTab({ data, canManage, canAddMedia, canAddMatch, onAddMatch, onEditMatch, onDeleteMatch, currentUser, onConfirmMatch, onRejectMatch }) {
   const [yearFilter, setYearFilter] = useState("all");
 
   const allFriendly = useMemo(
@@ -4361,7 +4657,11 @@ function FriendlyMatchesTab({ data, canManage, canAddMedia, canAddMatch, onAddMa
           ) : (
             <div className="tt-matchlist" style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "0 16px" }}>
               {friendly.map((m) => (
-                <MatchRow key={m.id} match={m} data={data} canManage={canManage} canAddMedia={canAddMedia} onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate />
+                <MatchRow
+                  key={m.id} match={m} data={data} canManage={canManage} canAddMedia={canAddMedia}
+                  onEditMatch={onEditMatch} onDeleteMatch={onDeleteMatch} showDate
+                  currentUser={currentUser} onConfirmMatch={onConfirmMatch} onRejectMatch={onRejectMatch}
+                />
               ))}
             </div>
           )}

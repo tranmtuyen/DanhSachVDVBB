@@ -21,10 +21,10 @@ from .models import (
     TournamentGroup, TournamentResult, TournamentWaitlist,
 )
 from .serializers import (
-    GroupSerializer, HandicapRuleSerializer, KnockoutSlotSerializer, MatchCreateSerializer, MatchMediaSerializer,
-    MatchSerializer, MatchUpdateSerializer, PlayerPhotoSerializer, PlayerSerializer, PointHistorySerializer,
-    RankingConfigSerializer, ResultCreateSerializer, ResultSerializer, ResultUpdateSerializer, TournamentSerializer,
-    TournamentWaitlistSerializer, UserSerializer,
+    FriendlySelfRegisterSerializer, GroupSerializer, HandicapRuleSerializer, KnockoutSlotSerializer,
+    MatchCreateSerializer, MatchMediaSerializer, MatchSerializer, MatchUpdateSerializer, PlayerPhotoSerializer,
+    PlayerSerializer, PointHistorySerializer, RankingConfigSerializer, ResultCreateSerializer, ResultSerializer,
+    ResultUpdateSerializer, TournamentSerializer, TournamentWaitlistSerializer, UserSerializer,
 )
 
 RECAPTCHA_THRESHOLD = 5  # Số lần sai liên tiếp trước khi bắt xác minh reCAPTCHA
@@ -319,11 +319,83 @@ class MatchViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         # Sửa/xóa trận đấu: chỉ Quản trị viên. Tạo trận mới: giữ nguyên như cũ (admin/manager/scorer).
+        # self-register/confirm/reject: VĐV tự đăng ký Giao hữu — chỉ cần đăng nhập (ràng buộc thêm,
+        # như "phải có VĐV liên kết"/"chỉ xác nhận trận của chính mình", được kiểm tra trong từng action).
         if self.action in ("partial_update", "destroy"):
             return [IsAdminOnly()]
         if self.action == "create":
             return [IsAdminOrManagerOrScorer()]
+        if self.action in ("self_register", "confirm", "reject"):
+            return [permissions.IsAuthenticated()]
         return [permissions.AllowAny()]
+
+    def get_queryset(self):
+        # Không có cron/celery trong dự án này: tự chuyển các trận "Chờ xác nhận" đã quá NGÀY DIỄN RA
+        # (chưa được đối thủ xác nhận/từ chối kịp) sang "Hết hạn" mỗi khi có người đọc danh sách trận —
+        # xử lý lazy, giữ lại trạng thái riêng (không xóa) để còn lịch sử, theo đúng yêu cầu.
+        Match.objects.filter(status=Match.CHO_XAC_NHAN, date__lt=timezone.localdate()).update(status=Match.HET_HAN)
+        return super().get_queryset()
+
+    @action(detail=False, methods=["post"], url_path="self-register")
+    def self_register(self, request):
+        """VĐV đã đăng nhập (và đã liên kết VĐV) tự đăng ký 1 trận Giao hữu — luôn là VĐV A, chọn đối
+        thủ chính (VĐV B, người PHẢI xác nhận), và nếu Đánh đôi thì chọn thêm đồng đội của mình (VĐV A2,
+        không cần xác nhận) + đối thủ thứ 2 (VĐV B2, cũng không cần xác nhận — chỉ VĐV B xác nhận)."""
+        player = services.get_linked_player(request.user)
+        if not player:
+            raise PermissionDenied("Tài khoản của bạn chưa được gắn với VĐV nào nên không thể tự đăng ký.")
+        serializer = FriendlySelfRegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        opponent = d["opponent"]
+        mode = d.get("mode", "don")
+        teammate = d.get("teammate")
+        opponent2 = d.get("opponent2")
+        if opponent.id == player.id or (teammate and teammate.id == player.id):
+            raise ValidationError("Không thể chọn chính mình làm đối thủ/đồng đội.")
+        if mode == "doi":
+            if not teammate or not opponent2:
+                raise ValidationError("Đánh đôi cần chọn đủ đồng đội và đối thủ thứ 2.")
+            ids = {player.id, teammate.id, opponent.id, opponent2.id}
+            if len(ids) != 4:
+                raise ValidationError("4 VĐV trong trận đôi phải khác nhau.")
+        match = Match.objects.create(
+            tournament=None, type=Match.GIAO_HUU, mode=mode, status=Match.CHO_XAC_NHAN,
+            player_a=player, player_b=opponent,
+            player_a2=teammate if mode == "doi" else None,
+            player_b2=opponent2 if mode == "doi" else None,
+            sets_a=None, sets_b=None, winner_side=None, delta_a=0, delta_b=0,
+            date=d["date"], handicap_a=d.get("handicap_a", ""), handicap_b=d.get("handicap_b", ""),
+        )
+        return Response(MatchSerializer(match).data, status=201)
+
+    def _require_confirming_player(self, request, match):
+        player = services.get_linked_player(request.user)
+        if not player or match.player_b_id != player.id:
+            raise PermissionDenied("Bạn chỉ có thể xác nhận/từ chối trận đấu mà chính bạn là đối thủ được mời.")
+        if match.date < timezone.localdate():
+            if match.status == Match.CHO_XAC_NHAN:
+                match.status = Match.HET_HAN
+                match.save(update_fields=["status"])
+            raise ValidationError("Trận đấu đã quá hạn xác nhận (đã qua ngày diễn ra).")
+        if match.status != Match.CHO_XAC_NHAN:
+            raise ValidationError("Trận đấu này không còn ở trạng thái chờ xác nhận.")
+
+    @action(detail=True, methods=["post"])
+    def confirm(self, request, pk=None):
+        match = self.get_object()
+        self._require_confirming_player(request, match)
+        match.status = Match.SCHEDULED
+        match.save(update_fields=["status"])
+        return Response(MatchSerializer(match).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        match = self.get_object()
+        self._require_confirming_player(request, match)
+        match.status = Match.TU_CHOI
+        match.save(update_fields=["status"])
+        return Response(MatchSerializer(match).data)
 
     def create(self, request, *args, **kwargs):
         serializer = MatchCreateSerializer(data=request.data)

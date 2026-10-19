@@ -182,7 +182,23 @@ class Match(models.Model):
     LOAI_TRAN_CHOICES = Tournament.LOAI_GIAI_CHOICES + [(GIAO_HUU, "Giao hữu")]
     MODE_CHOICES = [("don", "Đánh đơn"), ("doi", "Đánh đôi")]
     SIDE_CHOICES = [("A", "A"), ("B", "B")]
-    STATUS_CHOICES = [("completed", "Đã kết thúc"), ("scheduled", "Sắp diễn ra")]
+    COMPLETED = "completed"
+    SCHEDULED = "scheduled"
+    # 2 trạng thái dưới đây chỉ phát sinh từ luồng VĐV TỰ ĐĂNG KÝ Giao hữu (xem
+    # MatchViewSet.self_register/confirm/reject): CHO_XAC_NHAN khi vừa đăng ký, chờ đối thủ chính
+    # (player_b) xác nhận; TU_CHOI khi đối thủ bấm Từ chối; HET_HAN khi quá ngày diễn ra mà đối thủ
+    # chưa xác nhận/từ chối (tự chuyển — xem get_queryset, không cần cron/celery). Giữ lại cả 2 với
+    # trạng thái RIÊNG (không xóa) để còn lịch sử, theo yêu cầu người dùng.
+    CHO_XAC_NHAN = "cho_xac_nhan"
+    TU_CHOI = "tu_choi"
+    HET_HAN = "het_han"
+    STATUS_CHOICES = [
+        (COMPLETED, "Đã kết thúc"),
+        (SCHEDULED, "Sắp diễn ra"),
+        (CHO_XAC_NHAN, "Chờ xác nhận"),
+        (TU_CHOI, "Từ chối"),
+        (HET_HAN, "Hết hạn"),
+    ]
     # Lưu ý: "bang" (vòng bảng — do hệ thống tự gán), "ban_ket" và "chung_ket" là 3 giá trị
     # CỐ ĐỊNH, có ý nghĩa đặc biệt trong logic (vòng bảng gắn với TournamentGroup, "chung_ket"
     # dùng để xác định Nhà vô địch). Mọi giá trị khác là TÊN VÒNG ĐẤU TỰ DO do người nhập gõ

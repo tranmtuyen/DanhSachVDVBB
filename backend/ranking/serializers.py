@@ -4,6 +4,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 
 from . import services
@@ -243,6 +244,30 @@ class MatchCreateSerializer(serializers.Serializer):
         elif group:
             raise serializers.ValidationError("Chỉ trận vòng bảng mới thuộc 1 bảng đấu.")
         return data
+
+
+class FriendlySelfRegisterSerializer(serializers.Serializer):
+    """Input cho MatchViewSet.self_register (VĐV tự đăng ký Giao hữu). VĐV A luôn là chính người gọi
+    API (gắn ở view, không nhận từ client) — ở đây chỉ nhận đối thủ chính (phải xác nhận) + (nếu Đánh
+    đôi) đồng đội của mình và đối thủ thứ 2 (2 người này KHÔNG cần xác nhận)."""
+    mode = serializers.ChoiceField(choices=Match.MODE_CHOICES, default="don")
+    opponent = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
+    teammate = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, allow_null=True)
+    opponent2 = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, allow_null=True)
+    handicap_a = serializers.CharField(required=False, allow_blank=True, default="", max_length=20)
+    handicap_b = serializers.CharField(required=False, allow_blank=True, default="", max_length=20)
+    date = serializers.DateField()
+
+    def validate_handicap_a(self, value):
+        return _clean_handicap(value)
+
+    def validate_handicap_b(self, value):
+        return _clean_handicap(value)
+
+    def validate_date(self, value):
+        if value < timezone.localdate():
+            raise serializers.ValidationError("Không thể chọn ngày trong quá khứ.")
+        return value
 
 
 class MatchUpdateSerializer(serializers.Serializer):
