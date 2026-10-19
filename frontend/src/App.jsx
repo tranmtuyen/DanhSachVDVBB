@@ -528,13 +528,13 @@ function MatchTeamsGrid({ leftP1, leftP2, rightP1, rightP2, middle, leftHandicap
   const hasSecondRow = !!(leftP2 || rightP2);
   const nameStyle = { textAlign: "left", color: C.nameColor, fontWeight: 700, overflowWrap: "anywhere" };
   return (
-    <div className="tt-teams-grid" style={{ display: "grid", gridTemplateColumns: "minmax(120px,1fr) 78px minmax(120px,1fr)", width: "100%", alignItems: "center", rowGap: 1, columnGap: 10 }}>
+    <div className="tt-teams-grid" style={{ display: "grid", gridTemplateColumns: "minmax(120px,1fr) minmax(78px,max-content) minmax(120px,1fr)", width: "100%", alignItems: "center", rowGap: 1, columnGap: 10 }}>
       <div className="tt-tg-1" style={nameStyle}>{leftP1?.name}<HandicapTag value={leftHandicap} /></div>
       <div
         className="tt-tg-mid tabular"
         style={{
           gridRow: hasSecondRow ? "span 2" : "auto", alignSelf: "center",
-          textAlign: "center", fontSize: 13, fontWeight: 800, color: C.ink, whiteSpace: "nowrap",
+          textAlign: "center", fontSize: 13, fontWeight: 800, color: C.ink, whiteSpace: "nowrap", padding: "0 2px",
         }}
       >
         {middle}
