@@ -567,12 +567,20 @@ class PointHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 
 class TournamentWaitlistViewSet(viewsets.ModelViewSet):
     """Danh sách chờ đăng ký thi đấu — nút riêng ở thẻ giải đấu, AI CŨNG XEM ĐƯỢC (kể cả người dùng
-    thường/chưa đăng nhập, giống matches/handicap-rules); chỉ Admin/Quản lý giải mới thêm/sửa/xóa
-    được (giai đoạn sau sẽ bổ sung endpoint riêng cho VĐV tự đăng ký)."""
+    thường/chưa đăng nhập, giống matches/handicap-rules). Thêm (POST): Admin/Quản lý giải thêm cho
+    bất kỳ VĐV nào (source="admin", không cần giải đang Mở đăng ký); VĐV tự đăng ký (source="self")
+    cần đăng nhập + đã liên kết VĐV + giải đang ở trạng thái "Mở đăng ký", và chỉ được đăng ký cho
+    chính mình. Sửa/Xóa (PATCH/DELETE) vẫn chỉ dành cho Admin/Quản lý giải."""
     queryset = TournamentWaitlist.objects.select_related("player", "tournament").all()
     serializer_class = TournamentWaitlistSerializer
-    permission_classes = [IsAdminOrManager]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_permissions(self):
+        if self.action == "create":
+            return [permissions.IsAuthenticated()]
+        if self.action in ("partial_update", "update", "destroy"):
+            return [IsAdminOrManager()]
+        return [permissions.AllowAny()]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -582,7 +590,22 @@ class TournamentWaitlistViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(source=TournamentWaitlist.ADMIN)
+        role = services.get_role(self.request.user)
+        if role in ("admin", "manager"):
+            serializer.save(source=TournamentWaitlist.ADMIN)
+            return
+
+        # VĐV tự đăng ký: chỉ cho chính mình, và chỉ khi giải đang Mở đăng ký.
+        player = services.get_linked_player(self.request.user)
+        if not player:
+            raise PermissionDenied("Tài khoản của bạn chưa được gắn với VĐV nào nên không thể tự đăng ký.")
+        chosen_player = serializer.validated_data.get("player")
+        if chosen_player and chosen_player.id != player.id:
+            raise PermissionDenied("Bạn chỉ có thể tự đăng ký cho chính mình.")
+        tournament = serializer.validated_data.get("tournament")
+        if not tournament or tournament.registration_status != Tournament.MO_DANG_KY:
+            raise ValidationError("Giải đấu này hiện không mở đăng ký.")
+        serializer.save(player=player, source=TournamentWaitlist.SELF, status=TournamentWaitlist.CHO)
 
 
 class HandicapRuleViewSet(viewsets.ModelViewSet):

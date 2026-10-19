@@ -615,6 +615,7 @@ export default function App() {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [showLogin, setShowLogin] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const role = currentUser?.role || "public";
@@ -1064,8 +1065,19 @@ export default function App() {
       <div style={{ flex: 1, minWidth: 0 }}>
         {currentUser && (
           <div style={{ display: "flex", justifyContent: "flex-end", padding: "14px 24px 0" }}>
-            <UserMenu currentUser={currentUser} onLogout={logout} onChangePassword={() => setShowChangePassword(true)} onOpenProfile={() => setTab("profile")} />
+            <UserMenu
+              currentUser={currentUser} onLogout={logout} onChangePassword={() => setShowChangePassword(true)}
+              onOpenProfile={() => setTab("profile")} onOpenRegister={() => setShowRegisterModal(true)}
+            />
           </div>
+        )}
+
+        {showRegisterModal && currentUser && (
+          <TournamentSelfRegisterModal
+            currentUser={currentUser} tournaments={tournaments}
+            onFetchWaitlist={fetchWaitlist} onAddWaitlistEntry={addWaitlistEntry}
+            onClose={() => setShowRegisterModal(false)}
+          />
         )}
         <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px 24px 64px" }}>
           {loadError && (
@@ -3768,6 +3780,116 @@ function TournamentWaitlistModal({ tournament: t, players, canManage, onFetch, o
   );
 }
 
+/* ---------- Popup "Đăng ký thi đấu" (VĐV tự đăng ký Giải đấu) — mở từ menu góc user, chỉ cho
+   tài khoản đã liên kết VĐV. Chỉ liệt kê giải đang "Mở đăng ký" và chưa "Đã kết thúc"; VĐV chỉ đăng
+   ký được cho chính mình, đăng ký thành công vào thẳng Danh sách chờ với trạng thái "Chờ". ---------- */
+function TournamentSelfRegisterModal({ currentUser, tournaments, onFetchWaitlist, onAddWaitlistEntry, onClose }) {
+  const openTournaments = useMemo(
+    () => tournaments.filter((t) => t.registration_status === "mo_dang_ky" && t.status !== "da_ket_thuc"),
+    [tournaments]
+  );
+  const [myStatus, setMyStatus] = useState({}); // { [tournamentId]: "cho" | "xac_nhan" | undefined }
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState("");
+  const [registeringId, setRegisteringId] = useState(null);
+  const [err, setErr] = useState("");
+
+  async function loadMyStatus() {
+    setLoading(true);
+    setLoadErr("");
+    try {
+      const results = await Promise.all(
+        openTournaments.map((t) => onFetchWaitlist(t.id).then((list) => [t.id, list]))
+      );
+      const next = {};
+      for (const [tid, list] of results) {
+        const mine = (list || []).find((e) => e.player === currentUser.player_id);
+        if (mine) next[tid] = mine.status;
+      }
+      setMyStatus(next);
+    } catch (e) {
+      setLoadErr(e.message || "Không tải được tình trạng đăng ký.");
+    }
+    setLoading(false);
+  }
+  useEffect(() => { loadMyStatus(); }, [openTournaments.map((t) => t.id).join(",")]);
+
+  async function register(t) {
+    setErr("");
+    setRegisteringId(t.id);
+    try {
+      await onAddWaitlistEntry(t.id, currentUser.player_id);
+      setMyStatus((prev) => ({ ...prev, [t.id]: "cho" }));
+    } catch (e) {
+      setErr(e.message || "Có lỗi khi đăng ký.");
+    }
+    setRegisteringId(null);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", zIndex: 80, overflowY: "auto", padding: "3vh 10px" }}>
+      <div style={{ background: C.bg, borderRadius: 16, maxWidth: 640, margin: "0 auto", padding: "16px 14px 22px" }} className="flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>Đăng ký thi đấu</div>
+            <div style={{ fontSize: 17, fontWeight: 800, fontFamily: FONT_DISPLAY }}>Đăng ký Giải đấu</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Đóng" style={{ ...btnGhost, padding: "6px 14px", flexShrink: 0 }}>✕ Đóng</button>
+        </div>
+
+        <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+          Đăng ký tham gia các giải đấu đang mở đăng ký — đăng ký thành công sẽ vào Danh sách chờ với trạng thái "Chờ", Admin/Quản lý giải sẽ duyệt và xếp bạn vào bảng đấu.
+        </div>
+
+        {err && <div style={{ color: C.bad, fontSize: 13 }}>{err}</div>}
+
+        {loadErr ? (
+          <EmptyState text={loadErr} />
+        ) : openTournaments.length === 0 ? (
+          <EmptyState text="Hiện không có giải đấu nào đang mở đăng ký." />
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            {openTournaments.map((t) => {
+              const status = myStatus[t.id];
+              return (
+                <div
+                  key={t.id}
+                  className="flex items-center justify-between gap-3"
+                  style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px" }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
+                    <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{tournamentDateRangeText(t)}</div>
+                  </div>
+                  {loading ? (
+                    <div style={{ fontSize: 12.5, color: C.muted, flexShrink: 0 }}>Đang tải…</div>
+                  ) : status ? (
+                    <span style={{
+                      flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                      background: status === "xac_nhan" ? "#1E8E5222" : "#F2A93B22",
+                      color: status === "xac_nhan" ? "#1E8E52" : "#B9790A",
+                    }}>
+                      {status === "xac_nhan" ? "Đã xác nhận" : "Đã đăng ký · Chờ"}
+                    </span>
+                  ) : (
+                    <button
+                      type="button" style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13, flexShrink: 0 }}
+                      disabled={registeringId === t.id}
+                      onClick={() => register(t)}
+                    >
+                      {registeringId === t.id ? "Đang đăng ký…" : "Đăng ký"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Popup "Quản lý giải đấu" ---------- */
 function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }) {
   const [tab, setTab] = useState("groups");
@@ -4280,7 +4402,7 @@ function PlayerDetailModal({ onClose, children }) {
 }
 
 /* ---------- Menu user góc trên bên phải ---------- */
-function UserMenu({ currentUser, onLogout, onChangePassword, onOpenProfile }) {
+function UserMenu({ currentUser, onLogout, onChangePassword, onOpenProfile, onOpenRegister }) {
   const [open, setOpen] = useState(false);
   const initials = (currentUser.username || "?")[0]?.toUpperCase() || "?";
 
@@ -4326,6 +4448,13 @@ function UserMenu({ currentUser, onLogout, onChangePassword, onOpenProfile }) {
             }}
           >
             <button onClick={() => { setOpen(false); onOpenProfile(); }} style={menuBtnStyle}>Hồ sơ</button>
+            <button
+              onClick={() => { if (!currentUser.player_id) return; setOpen(false); onOpenRegister(); }}
+              title={!currentUser.player_id ? "Tài khoản của bạn chưa được gắn với VĐV nào" : undefined}
+              style={{ ...menuBtnStyle, ...(currentUser.player_id ? {} : { color: C.muted, cursor: "not-allowed" }) }}
+            >
+              Đăng ký thi đấu
+            </button>
             <button onClick={() => { setOpen(false); onChangePassword(); }} style={menuBtnStyle}>Đổi mật khẩu</button>
             <div style={{ borderTop: `1px solid ${C.line}` }} />
             <button onClick={() => { setOpen(false); onLogout(); }} style={{ ...menuBtnStyle, color: C.bad }}>Đăng xuất</button>
