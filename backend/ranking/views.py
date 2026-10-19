@@ -565,20 +565,13 @@ class PointHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.AllowAny]
 
 
-class IsAdminOrManagerStrict(permissions.BasePermission):
-    """Không cho xem công khai như IsAdminOrManager (vốn chỉ chặn ghi) — Danh sách chờ chỉ
-    Admin/Quản lý giải mới được xem, kể cả GET."""
-
-    def has_permission(self, request, view):
-        return services.get_role(request.user) in ("admin", "manager")
-
-
 class TournamentWaitlistViewSet(viewsets.ModelViewSet):
-    """Danh sách chờ đăng ký thi đấu (tab trong màn Giải đấu) — chỉ Admin/Quản lý giải xem/quản lý
-    (giai đoạn sau sẽ bổ sung endpoint riêng cho VĐV tự đăng ký)."""
+    """Danh sách chờ đăng ký thi đấu — nút riêng ở thẻ giải đấu, AI CŨNG XEM ĐƯỢC (kể cả người dùng
+    thường/chưa đăng nhập, giống matches/handicap-rules); chỉ Admin/Quản lý giải mới thêm/sửa/xóa
+    được (giai đoạn sau sẽ bổ sung endpoint riêng cho VĐV tự đăng ký)."""
     queryset = TournamentWaitlist.objects.select_related("player", "tournament").all()
     serializer_class = TournamentWaitlistSerializer
-    permission_classes = [IsAdminOrManagerStrict]
+    permission_classes = [IsAdminOrManager]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_queryset(self):

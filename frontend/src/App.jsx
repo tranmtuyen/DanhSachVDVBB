@@ -848,8 +848,8 @@ export default function App() {
     await refreshAll();
   }
 
-  // Danh sách chờ đăng ký thi đấu — KHÔNG nằm trong refreshAll()/data chung: chỉ Admin/Quản lý giải
-  // mới xem được (API trả 403 cho vai trò khác), nên tab "Danh sách chờ" tự tải riêng theo từng giải.
+  // Danh sách chờ đăng ký thi đấu — KHÔNG nằm trong refreshAll()/data chung: ai cũng xem được (kể cả
+  // chưa đăng nhập), chỉ thêm/sửa/xóa mới cần quyền Admin/Quản lý giải; popup tự tải riêng theo từng giải.
   async function fetchWaitlist(tournamentId) {
     return apiGet(`/tournament-waitlist/?tournament=${tournamentId}`);
   }
@@ -3587,10 +3587,11 @@ function TournamentResultsPanel({ tournament: t, data, canEnterResults, onAddRes
   );
 }
 
-/* ---------- Tab "Danh sách chờ" (đăng ký thi đấu) — chỉ Admin/Quản lý giải. Độc lập hoàn toàn với
+/* ---------- Popup "Danh sách chờ" — nút riêng ngoài thẻ giải đấu, AI CŨNG XEM ĐƯỢC (kể cả chưa đăng
+   nhập); tính năng thêm/sửa/xóa chỉ hiện khi canManage (Admin/Quản lý giải). Độc lập hoàn toàn với
    Bảng đấu/Vòng loại trực tiếp: đây chỉ là bước đăng ký/duyệt, xác nhận ở đây KHÔNG tự thêm vào bảng
    nào — Admin vẫn tự tay xếp VĐV đã duyệt vào Bảng đấu/Vòng loại như quy trình hiện có. ---------- */
-function TournamentWaitlistPanel({ tournament: t, players, onFetch, onAdd, onEdit, onDelete }) {
+function TournamentWaitlistModal({ tournament: t, players, canManage, onFetch, onAdd, onEdit, onDelete, onClose }) {
   const [entries, setEntries] = useState(null);
   const [loadErr, setLoadErr] = useState("");
   const [addPlayerId, setAddPlayerId] = useState("");
@@ -3656,93 +3657,113 @@ function TournamentWaitlistPanel({ tournament: t, players, onFetch, onAdd, onEdi
 
   const existingPlayerIds = (entries || []).map((e) => e.player);
 
-  if (loadErr) return <EmptyState text={loadErr} />;
-  if (entries === null) return null;
-
   return (
-    <div className="flex flex-col gap-4">
-      <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
-        Danh sách đăng ký thi đấu của giải (độc lập với Bảng đấu/Vòng loại trực tiếp) — chuyển trạng thái
-        "Đã xác nhận" chỉ để duyệt đăng ký, bạn vẫn tự xếp VĐV vào Bảng đấu/Vòng loại như bình thường.
-      </div>
-
-      <form onSubmit={addEntry} className="flex items-end gap-3" style={{ flexWrap: "wrap" }}>
-        <Field label="Thêm VĐV vào danh sách chờ">
-          <div style={{ minWidth: 240 }}>
-            <PlayerCombobox players={players} value={addPlayerId} onChange={setAddPlayerId} excludeIds={existingPlayerIds} />
+    <div style={{ position: "fixed", inset: 0, background: "rgba(16,22,43,0.55)", zIndex: 80, overflowY: "auto", padding: "3vh 10px" }}>
+      <div style={{ background: C.bg, borderRadius: 16, maxWidth: 820, margin: "0 auto", padding: "16px 14px 22px" }} className="flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>Danh sách chờ</div>
+            <div style={{ fontSize: 17, fontWeight: 800, fontFamily: FONT_DISPLAY }}>{t.name}</div>
           </div>
-        </Field>
-        <button type="submit" style={btnPrimary} disabled={!addPlayerId}>+ Thêm</button>
-      </form>
-      {addErr && <div style={{ color: C.bad, fontSize: 13 }}>{addErr}</div>}
-
-      {entries.length === 0 ? (
-        <EmptyState text="Chưa có ai đăng ký/được thêm vào danh sách chờ." />
-      ) : (
-        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "0 16px" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>Ngày đăng ký</th>
-                <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>VĐV</th>
-                <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>Hình thức</th>
-                <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>Trạng thái</th>
-                <th style={{ padding: "8px" }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((entry) => {
-                const isEditing = editingId === entry.id;
-                return (
-                  <tr key={entry.id} style={{ borderTop: `1px solid ${C.line}` }}>
-                    <td className="tabular" style={{ padding: "8px", fontSize: 13, whiteSpace: "nowrap" }}>
-                      {fmtDate((entry.created_at || "").slice(0, 10))}
-                    </td>
-                    <td style={{ padding: "8px", fontSize: 13.5, minWidth: 180 }}>
-                      {isEditing ? (
-                        <PlayerCombobox players={players} value={editPlayerId} onChange={setEditPlayerId} excludeIds={existingPlayerIds.filter((id) => id !== entry.player)} />
-                      ) : entry.player_name}
-                    </td>
-                    <td style={{ padding: "8px", fontSize: 13 }}>
-                      {entry.source === "self" ? "VĐV tự đăng ký" : "Admin/Quản lý chọn"}
-                    </td>
-                    <td style={{ padding: "8px", fontSize: 13 }}>
-                      {isEditing ? (
-                        <select style={{ ...inputStyle, maxWidth: 160 }} value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
-                          <option value="cho">Chờ</option>
-                          <option value="xac_nhan">Đã xác nhận</option>
-                        </select>
-                      ) : (
-                        <span style={{
-                          fontSize: 11.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999,
-                          background: entry.status === "xac_nhan" ? "#1E8E5222" : "#F2A93B22",
-                          color: entry.status === "xac_nhan" ? "#1E8E52" : "#B9790A",
-                        }}>
-                          {entry.status === "xac_nhan" ? "Đã xác nhận" : "Chờ"}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                      {isEditing ? (
-                        <>
-                          <button type="button" style={{ ...btnPrimary, padding: "4px 10px", fontSize: 12.5 }} onClick={() => saveEdit(entry.id)}>Lưu</button>{" "}
-                          <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5 }} onClick={cancelEdit}>Hủy</button>
-                        </>
-                      ) : (
-                        <>
-                          <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5 }} onClick={() => startEdit(entry)}>Sửa</button>{" "}
-                          <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5, color: C.bad }} onClick={() => removeEntry(entry)}>Xóa</button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {editErr && <div style={{ color: C.bad, fontSize: 13, padding: "8px" }}>{editErr}</div>}
+          <button type="button" onClick={onClose} aria-label="Đóng" style={{ ...btnGhost, padding: "6px 14px", flexShrink: 0 }}>✕ Đóng</button>
         </div>
-      )}
+
+        {loadErr ? (
+          <EmptyState text={loadErr} />
+        ) : entries === null ? null : (
+          <>
+            <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+              Danh sách đăng ký thi đấu của giải (độc lập với Bảng đấu/Vòng loại trực tiếp){canManage ? " — chuyển trạng thái \"Đã xác nhận\" chỉ để duyệt đăng ký, bạn vẫn tự xếp VĐV vào Bảng đấu/Vòng loại như bình thường." : "."}
+            </div>
+
+            {canManage && (
+              <>
+                <form onSubmit={addEntry} className="flex items-end gap-3" style={{ flexWrap: "wrap" }}>
+                  <Field label="Thêm VĐV vào danh sách chờ">
+                    <div style={{ minWidth: 240 }}>
+                      <PlayerCombobox players={players} value={addPlayerId} onChange={setAddPlayerId} excludeIds={existingPlayerIds} />
+                    </div>
+                  </Field>
+                  <button type="submit" style={btnPrimary} disabled={!addPlayerId}>+ Thêm</button>
+                </form>
+                {addErr && <div style={{ color: C.bad, fontSize: 13 }}>{addErr}</div>}
+              </>
+            )}
+
+            {entries.length === 0 ? (
+              <EmptyState text="Chưa có ai đăng ký/được thêm vào danh sách chờ." />
+            ) : (
+              <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "0 16px", overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>STT</th>
+                      <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>Ngày đăng ký</th>
+                      <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>VĐV</th>
+                      <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>Trạng thái</th>
+                      <th style={{ textAlign: "left", fontSize: 12, color: C.muted, padding: "8px" }}>Ghi chú</th>
+                      {canManage && <th style={{ padding: "8px" }}></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.map((entry, idx) => {
+                      const isEditing = canManage && editingId === entry.id;
+                      return (
+                        <tr key={entry.id} style={{ borderTop: `1px solid ${C.line}` }}>
+                          <td className="tabular" style={{ padding: "8px", fontSize: 13, color: C.muted }}>{idx + 1}</td>
+                          <td className="tabular" style={{ padding: "8px", fontSize: 13, whiteSpace: "nowrap" }}>
+                            {fmtDate((entry.created_at || "").slice(0, 10))}
+                          </td>
+                          <td style={{ padding: "8px", fontSize: 13.5, minWidth: 180 }}>
+                            {isEditing ? (
+                              <PlayerCombobox players={players} value={editPlayerId} onChange={setEditPlayerId} excludeIds={existingPlayerIds.filter((id) => id !== entry.player)} />
+                            ) : entry.player_name}
+                          </td>
+                          <td style={{ padding: "8px", fontSize: 13 }}>
+                            {isEditing ? (
+                              <select style={{ ...inputStyle, maxWidth: 160 }} value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
+                                <option value="cho">Chờ</option>
+                                <option value="xac_nhan">Đã xác nhận</option>
+                              </select>
+                            ) : (
+                              <span style={{
+                                fontSize: 11.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999,
+                                background: entry.status === "xac_nhan" ? "#1E8E5222" : "#F2A93B22",
+                                color: entry.status === "xac_nhan" ? "#1E8E52" : "#B9790A",
+                              }}>
+                                {entry.status === "xac_nhan" ? "Đã xác nhận" : "Chờ"}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: "8px", fontSize: 13 }}>
+                            {entry.source === "self" ? "VĐV tự đăng ký" : "-"}
+                          </td>
+                          {canManage && (
+                            <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                              {isEditing ? (
+                                <>
+                                  <button type="button" style={{ ...btnPrimary, padding: "4px 10px", fontSize: 12.5 }} onClick={() => saveEdit(entry.id)}>Lưu</button>{" "}
+                                  <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5 }} onClick={cancelEdit}>Hủy</button>
+                                </>
+                              ) : (
+                                <>
+                                  <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5 }} onClick={() => startEdit(entry)}>Sửa</button>{" "}
+                                  <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5, color: C.bad }} onClick={() => removeEntry(entry)}>Xóa</button>
+                                </>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {editErr && <div style={{ color: C.bad, fontSize: 13, padding: "8px" }}>{editErr}</div>}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -3756,7 +3777,6 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
     { id: "groups", label: "Bảng đấu" },
     { id: "knockout", label: "Vòng loại trực tiếp" },
     { id: "results", label: "Thành tích" },
-    ...(perms.canEnterResults ? [{ id: "waitlist", label: "Danh sách chờ" }] : []),
   ];
 
   return (
@@ -3815,13 +3835,6 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
             onAddResult={handlers.onAddResult} onEditResult={handlers.onEditResult} onDeleteResult={handlers.onDeleteResult}
           />
         )}
-        {tab === "waitlist" && perms.canEnterResults && (
-          <TournamentWaitlistPanel
-            tournament={t} players={data.players}
-            onFetch={handlers.onFetchWaitlist} onAdd={handlers.onAddWaitlistEntry}
-            onEdit={handlers.onUpdateWaitlistEntry} onDelete={handlers.onDeleteWaitlistEntry}
-          />
-        )}
       </div>
     </div>
   );
@@ -3837,6 +3850,7 @@ function TournamentCard({
 }) {
   const [showManage, setShowManage] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [showWaitlist, setShowWaitlist] = useState(false);
   const matches = data.matches.filter((m) => m.tournament === t.id);
   const results = data.results.filter((r) => r.tournament === t.id);
   const groups = (data.groups || []).filter((g) => g.tournament === t.id);
@@ -3874,6 +3888,7 @@ function TournamentCard({
 
           <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
             <button style={btnPrimary} onClick={() => setShowManage(true)}>{canManage ? "Quản lý giải đấu" : "Xem chi tiết giải"}</button>
+            <button style={btnGhost} onClick={() => setShowWaitlist(true)}>Danh sách chờ</button>
             {canEnterResults && (
               <button
                 style={btnGhost}
@@ -3909,8 +3924,15 @@ function TournamentCard({
           handlers={{
             onAddGroup, onUpdateGroup, onDeleteGroup, onAddMatch, onEditMatch, onDeleteMatch, onAddResult, onEditResult, onDeleteResult,
             onGenerateBracket, onDeleteBracket, onRenameKnockoutRound, onSetSlotBye, onSetSlotMatch, onClearSlot,
-            onFetchWaitlist, onAddWaitlistEntry, onUpdateWaitlistEntry, onDeleteWaitlistEntry,
           }}
+        />
+      )}
+
+      {showWaitlist && (
+        <TournamentWaitlistModal
+          tournament={t} players={data.players} canManage={canEnterResults}
+          onFetch={onFetchWaitlist} onAdd={onAddWaitlistEntry} onEdit={onUpdateWaitlistEntry} onDelete={onDeleteWaitlistEntry}
+          onClose={() => setShowWaitlist(false)}
         />
       )}
 
