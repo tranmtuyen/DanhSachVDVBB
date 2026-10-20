@@ -664,7 +664,9 @@ class TournamentWaitlistViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         role = services.get_role(self.request.user)
         if role in ("admin", "manager"):
-            serializer.save(source=TournamentWaitlist.ADMIN)
+            # Admin/Quản lý giải tự thêm VĐV thì coi như đã duyệt luôn — mặc định "Đã xác nhận"
+            # (khác với VĐV tự đăng ký, luôn bắt đầu ở "Chờ" và cần Admin/Quản lý xác nhận riêng).
+            serializer.save(source=TournamentWaitlist.ADMIN, status=TournamentWaitlist.XAC_NHAN)
             return
 
         # VĐV tự đăng ký: chỉ cho chính mình, và chỉ khi giải đang Mở đăng ký.
@@ -678,6 +680,16 @@ class TournamentWaitlistViewSet(viewsets.ModelViewSet):
         if not tournament or tournament.registration_status != Tournament.MO_DANG_KY:
             raise ValidationError("Giải đấu này hiện không mở đăng ký.")
         serializer.save(player=player, source=TournamentWaitlist.SELF, status=TournamentWaitlist.CHO)
+
+    def perform_update(self, serializer):
+        # Entry "VĐV tự đăng ký" (source=self) không cho đổi sang VĐV khác — chỉ được sửa trạng thái
+        # (Admin/Quản lý xác nhận). Khớp với giao diện: entry loại này chỉ có nút "Xác nhận"/"Xóa",
+        # không có nút "Sửa" để đổi tên VĐV. Chặn luôn ở backend đề phòng gọi API trực tiếp.
+        instance = serializer.instance
+        new_player = serializer.validated_data.get("player")
+        if instance.source == TournamentWaitlist.SELF and new_player and new_player.id != instance.player_id:
+            raise PermissionDenied("Không thể đổi VĐV của entry do VĐV tự đăng ký.")
+        serializer.save()
 
 
 class HandicapRuleViewSet(viewsets.ModelViewSet):

@@ -3734,8 +3734,8 @@ function TournamentWaitlistModal({ tournament: t, players, canManage, onFetch, o
   const [addErr, setAddErr] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editPlayerId, setEditPlayerId] = useState("");
-  const [editStatus, setEditStatus] = useState("cho");
   const [editErr, setEditErr] = useState("");
+  const [busyId, setBusyId] = useState(null); // entry đang xử lý (nút "Xác nhận"), tránh double-click
 
   async function load() {
     try {
@@ -3762,9 +3762,10 @@ function TournamentWaitlistModal({ tournament: t, players, canManage, onFetch, o
   }
 
   function startEdit(entry) {
+    // Chỉ dùng cho entry do Admin/Quản lý giải thêm (source="admin") — chỉ cho sửa VĐV, trạng thái
+    // của loại entry này luôn là "Đã xác nhận" nên không có gì để sửa thêm.
     setEditingId(entry.id);
     setEditPlayerId(String(entry.player));
-    setEditStatus(entry.status);
     setEditErr("");
   }
   function cancelEdit() {
@@ -3774,11 +3775,24 @@ function TournamentWaitlistModal({ tournament: t, players, canManage, onFetch, o
   async function saveEdit(entryId) {
     setEditErr("");
     try {
-      await onEdit(entryId, { player: Number(editPlayerId), status: editStatus });
+      await onEdit(entryId, { player: Number(editPlayerId) });
       setEditingId(null);
       await load();
     } catch (err) {
       setEditErr(err.message || "Có lỗi khi lưu.");
+    }
+  }
+  async function confirmEntry(entry) {
+    // Chỉ dùng cho entry VĐV tự đăng ký (source="self") — duyệt bằng cách chuyển trạng thái sang
+    // "Đã xác nhận"; KHÔNG cho phép đổi VĐV của entry này (giữ đúng người đã tự đăng ký).
+    setBusyId(entry.id);
+    try {
+      await onEdit(entry.id, { status: "xac_nhan" });
+      await load();
+    } catch (err) {
+      alert(err.message || "Có lỗi khi xác nhận.");
+    } finally {
+      setBusyId(null);
     }
   }
   async function removeEntry(entry) {
@@ -3843,7 +3857,8 @@ function TournamentWaitlistModal({ tournament: t, players, canManage, onFetch, o
                   </thead>
                   <tbody>
                     {entries.map((entry, idx) => {
-                      const isEditing = canManage && editingId === entry.id;
+                      const isSelf = entry.source === "self";
+                      const isEditing = canManage && !isSelf && editingId === entry.id;
                       return (
                         <tr key={entry.id} style={{ borderTop: `1px solid ${C.line}` }}>
                           <td className="tabular" style={{ padding: "8px", fontSize: 13, color: C.muted }}>{idx + 1}</td>
@@ -3856,27 +3871,31 @@ function TournamentWaitlistModal({ tournament: t, players, canManage, onFetch, o
                             ) : entry.player_name}
                           </td>
                           <td style={{ padding: "8px", fontSize: 13 }}>
-                            {isEditing ? (
-                              <select style={{ ...inputStyle, maxWidth: 160 }} value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
-                                <option value="cho">Chờ</option>
-                                <option value="xac_nhan">Đã xác nhận</option>
-                              </select>
-                            ) : (
-                              <span style={{
-                                fontSize: 11.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999,
-                                background: entry.status === "xac_nhan" ? "#1E8E5222" : "#F2A93B22",
-                                color: entry.status === "xac_nhan" ? "#1E8E52" : "#B9790A",
-                              }}>
-                                {entry.status === "xac_nhan" ? "Đã xác nhận" : "Chờ"}
-                              </span>
-                            )}
+                            <span style={{
+                              fontSize: 11.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999,
+                              background: entry.status === "xac_nhan" ? "#1E8E5222" : "#F2A93B22",
+                              color: entry.status === "xac_nhan" ? "#1E8E52" : "#B9790A",
+                            }}>
+                              {entry.status === "xac_nhan" ? "Đã xác nhận" : "Chờ"}
+                            </span>
                           </td>
                           <td style={{ padding: "8px", fontSize: 13 }}>
-                            {entry.source === "self" ? "VĐV tự đăng ký" : "-"}
+                            {isSelf ? "VĐV tự đăng ký" : "-"}
                           </td>
                           {canManage && (
                             <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                              {isEditing ? (
+                              {isSelf ? (
+                                <>
+                                  {entry.status !== "xac_nhan" && (
+                                    <>
+                                      <button type="button" style={{ ...btnPrimary, padding: "4px 10px", fontSize: 12.5 }} disabled={busyId === entry.id} onClick={() => confirmEntry(entry)}>
+                                        {busyId === entry.id ? "Đang xác nhận…" : "Xác nhận"}
+                                      </button>{" "}
+                                    </>
+                                  )}
+                                  <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5, color: C.bad }} onClick={() => removeEntry(entry)}>Xóa</button>
+                                </>
+                              ) : isEditing ? (
                                 <>
                                   <button type="button" style={{ ...btnPrimary, padding: "4px 10px", fontSize: 12.5 }} onClick={() => saveEdit(entry.id)}>Lưu</button>{" "}
                                   <button type="button" style={{ ...btnGhost, padding: "4px 10px", fontSize: 12.5 }} onClick={cancelEdit}>Hủy</button>
