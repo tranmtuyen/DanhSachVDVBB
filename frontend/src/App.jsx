@@ -1270,7 +1270,7 @@ function Leaderboard({ players, matches, history, onSelect }) {
   const cols = [
     { label: "Hạng", align: "left" },
     { label: "VĐV", align: "left" },
-    { label: "Điểm hiện tại", align: "center" },
+    { label: "Điểm hiện tại", align: "left" },
   ];
 
   return (
@@ -1311,7 +1311,7 @@ function Leaderboard({ players, matches, history, onSelect }) {
                         </div>
                       </div>
                     </td>
-                    <td className="tt-lb-td" style={{ padding: "12px 16px", textAlign: "center" }}>
+                    <td className="tt-lb-td" style={{ padding: "12px 16px", textAlign: "left" }}>
                       <ScorePill value={p.rating} matchDelta={deltaMap[p.id]?.matchDelta} achievementBonus={deltaMap[p.id]?.achievementBonus} />
                     </td>
                   </tr>
@@ -1464,22 +1464,40 @@ function PlayersTab({ players, history, canManage, onAdd, onSelect }) {
           const validPage = Math.min(page, totalPages);
           const paged = filteredPlayers.slice((validPage - 1) * PAGE_SIZE, validPage * PAGE_SIZE);
           return (
-            <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14 }}>
-              {paged.map((p, i) => (
-                <div key={p.id} data-row onClick={() => onSelect(p)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: i < paged.length - 1 ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
-                  <div className="flex items-center gap-3">
-                    <Avatar player={p} size={38} />
-                    <div>
-                      <div style={{ fontWeight: 600 }}><NameWithNickname name={p.name} nickname={p.nickname} /></div>
-                      <div style={{ fontSize: 12.5, color: C.muted }}>Tham gia {fmtDate(p.join_date)}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <HangBadge hang={p.hang} />
-                    <ScorePill value={p.rating} matchDelta={deltaMap[p.id]?.matchDelta} achievementBonus={deltaMap[p.id]?.achievementBonus} />
-                  </div>
-                </div>
-              ))}
+            <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden" }}>
+              <div className="tt-lb-scroll" style={{ overflowX: "auto" }}>
+              <table>
+                <thead>
+                  <tr style={{ background: C.ink }}>
+                    <th className="tt-lb-th" style={{ textAlign: "left", padding: "13px 16px", fontSize: 11.5, color: "#AEB4C9", fontWeight: 700, fontStyle: "italic", letterSpacing: 0.4, textTransform: "uppercase", whiteSpace: "nowrap" }}>VĐV</th>
+                    <th className="tt-lb-th" style={{ textAlign: "left", padding: "13px 16px", fontSize: 11.5, color: "#AEB4C9", fontWeight: 700, fontStyle: "italic", letterSpacing: 0.4, textTransform: "uppercase", whiteSpace: "nowrap" }}>Điểm</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paged.map((p) => (
+                    <tr key={p.id} data-row onClick={() => onSelect(p)} style={{ borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
+                      <td className="tt-lb-td" style={{ padding: "12px 16px", textAlign: "left" }}>
+                        <div className="flex items-center gap-3">
+                          <Avatar player={p} size={38} />
+                          <div>
+                            <div style={{ fontWeight: 700, color: C.nameColor }}>
+                              <NameWithNickname name={p.name} nickname={p.nickname} />
+                            </div>
+                            <div style={{ fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap" }}>
+                              <span style={{ color: HANG_COLOR[p.hang], textTransform: "uppercase", letterSpacing: 0.3 }}>Hạng {p.hang}</span>
+                              <span style={{ color: C.muted, fontWeight: 500 }}> · Tham gia {fmtDate(p.join_date)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="tt-lb-td" style={{ padding: "12px 16px", textAlign: "left" }}>
+                        <ScorePill value={p.rating} matchDelta={deltaMap[p.id]?.matchDelta} achievementBonus={deltaMap[p.id]?.achievementBonus} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
               <div style={{ borderTop: `1px solid ${C.line}` }}>
                 <Pagination page={validPage} totalPages={totalPages} onChange={setPage} />
               </div>
