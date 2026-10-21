@@ -3859,16 +3859,27 @@ function TournamentWaitlistModal({ tournament: t, players, canManage, onFetch, o
                     {entries.map((entry, idx) => {
                       const isSelf = entry.source === "self";
                       const isEditing = canManage && !isSelf && editingId === entry.id;
+                      const pl = players.find((p) => p.id === entry.player);
                       return (
                         <tr key={entry.id} style={{ borderTop: `1px solid ${C.line}` }}>
                           <td className="tabular" style={{ padding: "8px", fontSize: 13, color: C.muted }}>{idx + 1}</td>
                           <td className="tabular" style={{ padding: "8px", fontSize: 13, whiteSpace: "nowrap" }}>
                             {fmtDate((entry.created_at || "").slice(0, 10))}
                           </td>
-                          <td style={{ padding: "8px", fontSize: 13.5, minWidth: 180 }}>
+                          <td style={{ padding: "8px", fontSize: 13.5, minWidth: 200, overflowWrap: "anywhere" }}>
                             {isEditing ? (
                               <PlayerCombobox players={players} value={editPlayerId} onChange={setEditPlayerId} excludeIds={existingPlayerIds.filter((id) => id !== entry.player)} />
-                            ) : entry.player_name}
+                            ) : (
+                              <>
+                                <NameWithNickname name={pl?.name || entry.player_name} nickname={pl?.nickname} />
+                                {pl && (
+                                  <>
+                                    {" "}
+                                    <span className="tabular" style={{ color: C.pillScoreText, fontWeight: 700 }}>{pl.rating} PTS</span>
+                                  </>
+                                )}
+                              </>
+                            )}
                           </td>
                           <td style={{ padding: "8px", fontSize: 13 }}>
                             <span style={{
