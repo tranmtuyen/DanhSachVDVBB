@@ -39,6 +39,10 @@ const FONT_BODY = "'Be Vietnam Pro', sans-serif";
 const LOAI_GIAI_LABEL = { khong_chap: "Không chấp điểm", co_chap: "Có chấp điểm", giao_huu: "Giao hữu" };
 const HANDICAP_FORMAT_RE = /^\d{1,2}(-\d{1,2}){0,3}$/;
 const BONUS_LABEL = { vo_dich: "Vô địch", a_quan: "Á quân", hang_ba: "Hạng Ba", tu_ket: "Tứ kết" };
+// Thứ tự hiển thị thành tích (Vô địch - Á quân - Hạng Ba - Tứ kết...) + icon huy chương cho top 3
+// (chỉ Vô địch/Á quân/Hạng Ba có huy chương thật, các hạng khác không có nên không gán icon).
+const PLACEMENT_ORDER = ["vo_dich", "a_quan", "hang_ba", "tu_ket"];
+const PLACEMENT_ICON = { vo_dich: "🥇", a_quan: "🥈", hang_ba: "🥉" };
 
 /* ---------- Elo dùng để XEM TRƯỚC ở form (server mới là nơi tính chính thức) ---------- */
 const K_FACTOR = { khong_chap: 32, co_chap: 20, giao_huu: 10 };
@@ -2723,7 +2727,7 @@ function ResultRow({ result: r, players, canManage, onEdit, onDelete }) {
         <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, border: `1px solid ${C.line}`, borderRadius: 999, padding: "1px 7px", marginRight: 6 }}>
           {CONTENT_LABEL[r.content_type]}
         </span>
-        <span>{BONUS_LABEL[r.placement]} — {p?.name}{teamNames.length ? ` & ${teamNames.join(" & ")}` : ""}</span>
+        <span>{PLACEMENT_ICON[r.placement] ? `${PLACEMENT_ICON[r.placement]} ` : ""}{BONUS_LABEL[r.placement]} — {p?.name}{teamNames.length ? ` & ${teamNames.join(" & ")}` : ""}</span>
       </div>
       <div className="flex items-center gap-2">
         {r.bonus_applied ? (
@@ -3652,7 +3656,15 @@ function KnockoutPanel({
 
 /* ---------- Tab "Thành tích" (đã chuyển từ thẻ giải đấu vào popup) ---------- */
 function TournamentResultsPanel({ tournament: t, data, canEnterResults, onAddResult, onEditResult, onDeleteResult }) {
-  const results = data.results.filter((r) => r.tournament === t.id);
+  // Sắp xếp theo thứ tự Vô địch - Á quân - Hạng Ba - Tứ kết... (không phải theo thứ tự nhập liệu).
+  const results = data.results
+    .filter((r) => r.tournament === t.id)
+    .slice()
+    .sort((a, b) => {
+      const ia = PLACEMENT_ORDER.indexOf(a.placement);
+      const ib = PLACEMENT_ORDER.indexOf(b.placement);
+      return (ia === -1 ? PLACEMENT_ORDER.length : ia) - (ib === -1 ? PLACEMENT_ORDER.length : ib);
+    });
   const [contentType, setContentType] = useState("don");
   const [placement, setPlacement] = useState("vo_dich");
   const [playerId, setPlayerId] = useState("");
@@ -3672,6 +3684,10 @@ function TournamentResultsPanel({ tournament: t, data, canEnterResults, onAddRes
       setResultError(err.message || "Có lỗi khi lưu thành tích.");
     }
   }
+
+  // VĐV/khách xem (không có quyền quản lý) thì chỉ hiện khối này khi ĐÃ có thành tích ("nếu có") —
+  // không hiện form thêm/sửa trống không với họ.
+  if (!canEnterResults && results.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -4242,7 +4258,6 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
   const tabs = [
     { id: "groups", label: "Bảng đấu" },
     { id: "knockout", label: "Vòng loại trực tiếp" },
-    { id: "results", label: "Thành tích" },
   ];
 
   return (
@@ -4263,6 +4278,13 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
           <button type="button" onClick={onClose} aria-label="Đóng" style={{ ...btnGhost, padding: "6px 14px", flexShrink: 0 }}>✕ Đóng</button>
         </div>
 
+        {/* Thành tích hiển thị CỐ ĐỊNH ngay dưới thông tin giải (không còn là tab riêng) — chỉ hiện
+           với khách/VĐV xem khi đã có thành tích; với Admin/Quản lý giải thì luôn hiện để nhập liệu. */}
+        <TournamentResultsPanel
+          tournament={t} data={data} canEnterResults={perms.canEnterResults}
+          onAddResult={handlers.onAddResult} onEditResult={handlers.onEditResult} onDeleteResult={handlers.onDeleteResult}
+        />
+
         <div className="flex gap-2" style={{ overflowX: "auto", paddingBottom: 2 }}>
           {tabs.map((tb) => (
             <button
@@ -4274,7 +4296,7 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
           ))}
         </div>
 
-        {!isOpen && perms.canEnterMatches && tab !== "results" && (
+        {!isOpen && perms.canEnterMatches && (
           <div style={{ fontSize: 12.5, color: C.muted }}>Giải đấu đã kết thúc — không thể nhập thêm trận mới (vẫn có thể xem/sửa các trận đã có).</div>
         )}
 
@@ -4293,12 +4315,6 @@ function TournamentManageModal({ tournament: t, data, perms, handlers, onClose }
             onAddMatch={handlers.onAddMatch} onEditMatch={handlers.onEditMatch} onDeleteMatch={handlers.onDeleteMatch}
             onGenerateBracket={handlers.onGenerateBracket} onDeleteBracket={handlers.onDeleteBracket} onRenameKnockoutRound={handlers.onRenameKnockoutRound}
             onSetSlotBye={handlers.onSetSlotBye} onSetSlotMatch={handlers.onSetSlotMatch} onClearSlot={handlers.onClearSlot}
-          />
-        )}
-        {tab === "results" && (
-          <TournamentResultsPanel
-            tournament={t} data={data} canEnterResults={perms.canEnterResults}
-            onAddResult={handlers.onAddResult} onEditResult={handlers.onEditResult} onDeleteResult={handlers.onDeleteResult}
           />
         )}
       </div>
