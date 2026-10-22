@@ -1250,11 +1250,11 @@ export default function App() {
         }}
       >
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          © 2026 — CLB BÓNG BÀN SAO MAI - AN GIANG. Liên hệ: Trần Tuyên: 0907 303009
+          ©2026 tranmtuyen@gmail.com
         </span>
         {role === "admin" && siteVisitTotal !== null && (
           <span className="tabular" style={{ flexShrink: 0, fontWeight: 700, whiteSpace: "nowrap" }}>
-            👁 Tổng lượt truy cập: {siteVisitTotal.toLocaleString("vi-VN")}
+            Tổng lượt truy cập: {siteVisitTotal.toLocaleString("vi-VN")}
           </span>
         )}
       </div>
