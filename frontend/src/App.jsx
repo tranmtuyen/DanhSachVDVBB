@@ -638,6 +638,18 @@ export default function App() {
 
   const role = currentUser?.role || "public";
 
+  // Bộ đếm lượt truy cập THỰC (khách-ngày duy nhất, server tự dedup theo IP đã băm + ngày) — chỉ
+  // Admin mới xem được tổng số (API /site-visits/total/ chặn vai trò khác ở backend). Ghi nhận 1
+  // lượt mỗi khi app được tải (ai cũng ghi nhận, kể cả chưa đăng nhập), không phụ thuộc currentUser.
+  const [siteVisitTotal, setSiteVisitTotal] = useState(null);
+  useEffect(() => {
+    apiPostNoContent("/site-visits/ping/").catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (role !== "admin") { setSiteVisitTotal(null); return; }
+    apiGet("/site-visits/total/").then((d) => setSiteVisitTotal(d.total)).catch(() => {});
+  }, [role]);
+
   const pendingConfirmForMe = useMemo(() => {
     if (!currentUser?.player_id) return [];
     const today = todayStr();
@@ -1233,11 +1245,18 @@ export default function App() {
         className="tt-footer"
         style={{
           position: "fixed", left: 232, right: 0, bottom: 0, height: 40, zIndex: 40,
-          background: C.ink, display: "flex", alignItems: "center",
+          background: C.ink, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
           padding: "0 16px 0 24px", fontSize: 11.5, color: "#AEB4C9",
         }}
       >
-        <span>© 2026 — CLB BÓNG BÀN SAO MAI - AN GIANG. Liên hệ: Trần Tuyên: 0907 303009</span>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          © 2026 — CLB BÓNG BÀN SAO MAI - AN GIANG. Liên hệ: Trần Tuyên: 0907 303009
+        </span>
+        {role === "admin" && siteVisitTotal !== null && (
+          <span className="tabular" style={{ flexShrink: 0, fontWeight: 700, whiteSpace: "nowrap" }}>
+            👁 Tổng lượt truy cập: {siteVisitTotal.toLocaleString("vi-VN")}
+          </span>
+        )}
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import urllib.parse
 import urllib.request
@@ -7,6 +8,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError
 from django.db.models import Count
 from django.utils import timezone
 from rest_framework import permissions, viewsets
@@ -17,8 +19,8 @@ from rest_framework.response import Response
 
 from . import services
 from .models import (
-    HandicapRule, KnockoutSlot, LoginAttempt, Match, MatchMedia, Player, PointHistory, RankingConfig, Tournament,
-    TournamentGroup, TournamentResult, TournamentWaitlist,
+    HandicapRule, KnockoutSlot, LoginAttempt, Match, MatchMedia, Player, PointHistory, RankingConfig, SiteVisit,
+    Tournament, TournamentGroup, TournamentResult, TournamentWaitlist,
 )
 from .serializers import (
     FriendlySelfRegisterSerializer, GroupSerializer, HandicapRuleSerializer, KnockoutSlotSerializer,
@@ -716,3 +718,44 @@ def ranking_config_view(request):
         serializer.save()
         return Response(serializer.data)
     return Response(RankingConfigSerializer(cfg).data)
+
+
+# ================= Bộ đếm lượt truy cập (chỉ Quản trị viên xem được) =================
+
+def _client_ip(request):
+    """Lấy IP thật của khách — ưu tiên X-Forwarded-For (server đứng sau Nginx reverse proxy),
+    nếu không có thì lấy REMOTE_ADDR."""
+    xff = request.META.get("HTTP_X_FORWARDED_FOR")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "")
+
+
+def _hash_ip(ip):
+    """Băm IP (không lưu IP thô) — dùng SECRET_KEY làm salt để không ai dò ngược lại IP từ dữ liệu
+    đã lưu trong DB."""
+    return hashlib.sha256(f"{settings.SECRET_KEY}:{ip}".encode("utf-8")).hexdigest()
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def site_visit_ping(request):
+    """Ghi nhận 1 lượt truy cập — AI CŨNG GỌI ĐƯỢC (kể cả chưa đăng nhập), gọi 1 lần mỗi khi app
+    được tải. Server tự khử trùng theo (ngày, IP đã băm): F5/mở lại trang nhiều lần trong cùng 1
+    ngày chỉ tính 1 lượt. Không trả về số liệu (xem site_visit_total, chỉ Admin mới xem được) —
+    tránh lộ số liệu cho người dùng thường qua tab Network."""
+    ip = _client_ip(request)
+    if ip:
+        try:
+            SiteVisit.objects.create(date=timezone.localdate(), ip_hash=_hash_ip(ip))
+        except IntegrityError:
+            pass  # Hôm nay đã ghi nhận IP này rồi — bỏ qua, không phải lỗi.
+    return Response(status=204)
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminStrict])
+def site_visit_total(request):
+    """Tổng lượt truy cập (khách-ngày duy nhất, cộng dồn từ trước đến nay) — hiện ở footer, chỉ
+    Quản trị viên xem được (IsAdminStrict: không cho GET công khai như IsAdminOnly)."""
+    return Response({"total": SiteVisit.objects.count()})

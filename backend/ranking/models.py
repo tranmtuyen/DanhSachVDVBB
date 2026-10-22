@@ -504,3 +504,24 @@ class HandicapRule(models.Model):
     def __str__(self):
         rng = f"{self.min_diff}–{self.max_diff}" if self.max_diff is not None else f"{self.min_diff}+"
         return f"{rng} = {self.handicap_text or 'Không chấp'}"
+
+
+class SiteVisit(models.Model):
+    """1 dòng = 1 khách TRUY CẬP DUY NHẤT trong 1 NGÀY — ai cũng tự động ghi nhận khi mở app (kể cả
+    chưa đăng nhập), server tự khử trùng theo (ngày, ip_hash) qua unique_together nên F5/mở lại
+    nhiều lần trong cùng ngày không bị đếm thêm. "Tổng lượt truy cập" = SiteVisit.objects.count()
+    (tổng số khách-ngày cộng dồn từ trước đến nay). KHÔNG lưu IP thô — chỉ lưu bản băm (SHA-256 +
+    SECRET_KEY làm salt) để tôn trọng quyền riêng tư của người xem. Chỉ Admin được xem số liệu này
+    (xem views.site_visit_total) — đúng như yêu cầu "chỉ quản trị mới thấy" của bộ đếm ở footer."""
+    date = models.DateField("Ngày truy cập")
+    ip_hash = models.CharField("Mã băm IP", max_length=64)
+    created_at = models.DateTimeField("Thời điểm ghi nhận", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Lượt truy cập"
+        verbose_name_plural = "Lượt truy cập"
+        unique_together = ("date", "ip_hash")
+        indexes = [models.Index(fields=["date"])]
+
+    def __str__(self):
+        return f"{self.date} · {self.ip_hash[:10]}…"
